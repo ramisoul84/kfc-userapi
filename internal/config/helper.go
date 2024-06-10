@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -110,4 +111,18 @@ func getEnvBool(key string, fallback bool) bool {
 	}
 
 	return b
+}
+
+// getEnvDuration retrieves a duration environment variable
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+
+	d, err := time.ParseDuration(strings.TrimSpace(v))
+	if err != nil {
+		panic(fmt.Sprintf("environment variable %q must be a valid duration (e.g. 15s, 1m, 1h), got %q", key, v))
+	}
+	return d
 }

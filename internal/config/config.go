@@ -3,12 +3,14 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Config holds all configuration for the application
 type Config struct {
 	App    AppConfig
 	Logger LoggerConfig
+	HTTP   HTTPConfig
 }
 
 // AppConfig holds application-level configuration
@@ -26,6 +28,15 @@ type LoggerConfig struct {
 	Output   string
 	FilePath string
 	Service  string
+}
+
+// HTTPConfig holds HTTP server configuration
+type HTTPConfig struct {
+	Port            string
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
+	IdleTimeout     time.Duration
+	ShutdownTimeout time.Duration
 }
 
 // Load reads configuration from environment variables and validates it.
@@ -47,6 +58,14 @@ func Load() (*Config, error) {
 			Output:   getEnv("LOG_OUTPUT", defaultLogOutput(env)),
 			FilePath: getEnv("LOG_FILE_PATH", "logs/app.log"),
 			Service:  getEnv("LOG_SERVICE", "kfc-userapi"),
+		},
+
+		HTTP: HTTPConfig{
+			Port:            getEnv("HTTP_PORT", "8001"),
+			ReadTimeout:     getEnvDuration("HTTP_READ_TIMEOUT", 15*time.Second),
+			WriteTimeout:    getEnvDuration("HTTP_WRITE_TIMEOUT", 15*time.Second),
+			IdleTimeout:     getEnvDuration("HTTP_IDLE_TIMEOUT", 60*time.Second),
+			ShutdownTimeout: getEnvDuration("HTTP_SHUTDOWN_TIMEOUT", 10*time.Second),
 		},
 	}
 
