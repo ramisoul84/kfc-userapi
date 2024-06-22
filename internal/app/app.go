@@ -6,6 +6,9 @@ import (
 	"fmt"
 
 	"github.com/ramisoul84/kfc-userapi/internal/config"
+	"github.com/ramisoul84/kfc-userapi/internal/repository"
+	"github.com/ramisoul84/kfc-userapi/internal/service"
+	grpcTransport "github.com/ramisoul84/kfc-userapi/internal/transport/grpc"
 	httpTransport "github.com/ramisoul84/kfc-userapi/internal/transport/http"
 	"github.com/ramisoul84/kfc-userapi/pkg/cache"
 	"github.com/ramisoul84/kfc-userapi/pkg/logger"
@@ -13,10 +16,11 @@ import (
 
 // App wires together all application components.
 type App struct {
-	config *config.Config
-	logger *logger.Logger
-	server *httpTransport.Server
-	redis  *cache.Redis
+	config     *config.Config
+	logger     *logger.Logger
+	httpServer *httpTransport.Server
+	grpcServer *grpcTransport.Transport
+	redis      *cache.Redis
 }
 
 // New creates and wires the application.
@@ -42,14 +46,25 @@ func New(cfg *config.Config) (*App, error) {
 	}
 	log.Info("redis connected", "host", cfg.Redis.Host, "port", cfg.Redis.Port)
 
-	// HTTP server
-	server := httpTransport.NewServer(cfg, log)
+	// Repos
+	pairingRepo := repository.NewPairingRepository(redisClient)
+
+	// Services
+	pairingSvc := service.NewPairingService(pairingRepo, log)
+
+	// HTTP transport
+	httpServer := httpTransport.NewServer(cfg, log)
+
+	// gRPC transport
+	userapiServer := grpcTransport.NewUserAPIServer(pairingSvc, log)
+	grpcSrv := grpcTransport.NewTransport(cfg, log, userapiServer)
 
 	return &App{
-		config: cfg,
-		logger: log,
-		server: server,
-		redis:  redisClient,
+		config:     cfg,
+		logger:     log,
+		httpServer: httpServer,
+		grpcServer: grpcSrv,
+		redis:      redisClient,
 	}, nil
 }
 
@@ -58,13 +73,16 @@ func New(cfg *config.Config) (*App, error) {
 func (a *App) Start(ctx context.Context) error {
 	a.logger.Info("starting transports")
 
-	// Buffered so the goroutine never blocks on send if we've already
-	// returned via ctx.Done().
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 
 	go func() {
-		if err := a.server.Start(); err != nil {
+		if err := a.httpServer.Start(); err != nil {
 			errCh <- fmt.Errorf("http: %w", err)
+		}
+	}()
+	go func() {
+		if err := a.grpcServer.Start(); err != nil {
+			errCh <- fmt.Errorf("grpc: %w", err)
 		}
 	}()
 
@@ -84,12 +102,14 @@ func (a *App) Shutdown(ctx context.Context) error {
 
 	var errs []error
 
-	if err := a.server.Shutdown(ctx); err != nil {
+	if err := a.httpServer.Shutdown(ctx); err != nil {
 		a.logger.Error("http shutdown failed", "error", err)
 		errs = append(errs, fmt.Errorf("http shutdown: %w", err))
 	}
-
-	// Always release the Redis client, even if HTTP shutdown failed.
+	if err := a.grpcServer.Shutdown(ctx); err != nil {
+		a.logger.Error("grpc shutdown failed", "error", err)
+		errs = append(errs, fmt.Errorf("grpc shutdown: %w", err))
+	}
 	if a.redis != nil {
 		if err := a.redis.Close(); err != nil {
 			a.logger.Error("redis close failed", "error", err)
