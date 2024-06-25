@@ -425,6 +425,110 @@ func (x *RevokePairingCodeResponse) GetMessage() string {
 	return ""
 }
 
+type RevokeDeviceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	TtlSeconds    int64                  `protobuf:"varint,2,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeDeviceRequest) Reset() {
+	*x = RevokeDeviceRequest{}
+	mi := &file_proto_userapi_v1_devicepairing_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeDeviceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeDeviceRequest) ProtoMessage() {}
+
+func (x *RevokeDeviceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_userapi_v1_devicepairing_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeDeviceRequest.ProtoReflect.Descriptor instead.
+func (*RevokeDeviceRequest) Descriptor() ([]byte, []int) {
+	return file_proto_userapi_v1_devicepairing_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *RevokeDeviceRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *RevokeDeviceRequest) GetTtlSeconds() int64 {
+	if x != nil {
+		return x.TtlSeconds
+	}
+	return 0
+}
+
+type RevokeDeviceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeDeviceResponse) Reset() {
+	*x = RevokeDeviceResponse{}
+	mi := &file_proto_userapi_v1_devicepairing_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeDeviceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeDeviceResponse) ProtoMessage() {}
+
+func (x *RevokeDeviceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_userapi_v1_devicepairing_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeDeviceResponse.ProtoReflect.Descriptor instead.
+func (*RevokeDeviceResponse) Descriptor() ([]byte, []int) {
+	return file_proto_userapi_v1_devicepairing_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RevokeDeviceResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *RevokeDeviceResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 var File_proto_userapi_v1_devicepairing_proto protoreflect.FileDescriptor
 
 const file_proto_userapi_v1_devicepairing_proto_rawDesc = "" +
@@ -457,11 +561,19 @@ const file_proto_userapi_v1_devicepairing_proto_rawDesc = "" +
 	"\rserial_number\x18\x01 \x01(\tR\fserialNumber\"O\n" +
 	"\x19RevokePairingCodeResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage2\xdd\x02\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"S\n" +
+	"\x13RevokeDeviceRequest\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x1f\n" +
+	"\vttl_seconds\x18\x02 \x01(\x03R\n" +
+	"ttlSeconds\"J\n" +
+	"\x14RevokeDeviceResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage2\xbc\x03\n" +
 	"\x14DevicePairingService\x12l\n" +
 	"\x11CachePairingCodes\x12*.devicepairing.v1.CachePairingCodesRequest\x1a+.devicepairing.v1.CachePairingCodesResponse\x12i\n" +
 	"\x10CachePairingCode\x12).devicepairing.v1.CachePairingCodeRequest\x1a*.devicepairing.v1.CachePairingCodeResponse\x12l\n" +
-	"\x11RevokePairingCode\x12*.devicepairing.v1.RevokePairingCodeRequest\x1a+.devicepairing.v1.RevokePairingCodeResponseBHZFgithub.com/ramisoul84/kfc-userapi/gen/devicepairing/v1;devicepairingv1b\x06proto3"
+	"\x11RevokePairingCode\x12*.devicepairing.v1.RevokePairingCodeRequest\x1a+.devicepairing.v1.RevokePairingCodeResponse\x12]\n" +
+	"\fRevokeDevice\x12%.devicepairing.v1.RevokeDeviceRequest\x1a&.devicepairing.v1.RevokeDeviceResponseBHZFgithub.com/ramisoul84/kfc-userapi/gen/devicepairing/v1;devicepairingv1b\x06proto3"
 
 var (
 	file_proto_userapi_v1_devicepairing_proto_rawDescOnce sync.Once
@@ -475,7 +587,7 @@ func file_proto_userapi_v1_devicepairing_proto_rawDescGZIP() []byte {
 	return file_proto_userapi_v1_devicepairing_proto_rawDescData
 }
 
-var file_proto_userapi_v1_devicepairing_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_proto_userapi_v1_devicepairing_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_proto_userapi_v1_devicepairing_proto_goTypes = []any{
 	(*CachePairingCodesRequest)(nil),  // 0: devicepairing.v1.CachePairingCodesRequest
 	(*PairingCode)(nil),               // 1: devicepairing.v1.PairingCode
@@ -484,17 +596,21 @@ var file_proto_userapi_v1_devicepairing_proto_goTypes = []any{
 	(*CachePairingCodeResponse)(nil),  // 4: devicepairing.v1.CachePairingCodeResponse
 	(*RevokePairingCodeRequest)(nil),  // 5: devicepairing.v1.RevokePairingCodeRequest
 	(*RevokePairingCodeResponse)(nil), // 6: devicepairing.v1.RevokePairingCodeResponse
+	(*RevokeDeviceRequest)(nil),       // 7: devicepairing.v1.RevokeDeviceRequest
+	(*RevokeDeviceResponse)(nil),      // 8: devicepairing.v1.RevokeDeviceResponse
 }
 var file_proto_userapi_v1_devicepairing_proto_depIdxs = []int32{
 	1, // 0: devicepairing.v1.CachePairingCodesRequest.codes:type_name -> devicepairing.v1.PairingCode
 	0, // 1: devicepairing.v1.DevicePairingService.CachePairingCodes:input_type -> devicepairing.v1.CachePairingCodesRequest
 	3, // 2: devicepairing.v1.DevicePairingService.CachePairingCode:input_type -> devicepairing.v1.CachePairingCodeRequest
 	5, // 3: devicepairing.v1.DevicePairingService.RevokePairingCode:input_type -> devicepairing.v1.RevokePairingCodeRequest
-	2, // 4: devicepairing.v1.DevicePairingService.CachePairingCodes:output_type -> devicepairing.v1.CachePairingCodesResponse
-	4, // 5: devicepairing.v1.DevicePairingService.CachePairingCode:output_type -> devicepairing.v1.CachePairingCodeResponse
-	6, // 6: devicepairing.v1.DevicePairingService.RevokePairingCode:output_type -> devicepairing.v1.RevokePairingCodeResponse
-	4, // [4:7] is the sub-list for method output_type
-	1, // [1:4] is the sub-list for method input_type
+	7, // 4: devicepairing.v1.DevicePairingService.RevokeDevice:input_type -> devicepairing.v1.RevokeDeviceRequest
+	2, // 5: devicepairing.v1.DevicePairingService.CachePairingCodes:output_type -> devicepairing.v1.CachePairingCodesResponse
+	4, // 6: devicepairing.v1.DevicePairingService.CachePairingCode:output_type -> devicepairing.v1.CachePairingCodeResponse
+	6, // 7: devicepairing.v1.DevicePairingService.RevokePairingCode:output_type -> devicepairing.v1.RevokePairingCodeResponse
+	8, // 8: devicepairing.v1.DevicePairingService.RevokeDevice:output_type -> devicepairing.v1.RevokeDeviceResponse
+	5, // [5:9] is the sub-list for method output_type
+	1, // [1:5] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -511,7 +627,7 @@ func file_proto_userapi_v1_devicepairing_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_userapi_v1_devicepairing_proto_rawDesc), len(file_proto_userapi_v1_devicepairing_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

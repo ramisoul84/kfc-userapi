@@ -8,6 +8,7 @@ service DevicePairingService {
   rpc CachePairingCodes(CachePairingCodesRequest) returns (CachePairingCodesResponse);
   rpc CachePairingCode(CachePairingCodeRequest) returns (CachePairingCodeResponse);
   rpc RevokePairingCode(RevokePairingCodeRequest) returns (RevokePairingCodeResponse);
+  rpc RevokeDevice(RevokeDeviceRequest) returns (RevokeDeviceResponse);
 }
 
 message CachePairingCodesRequest {
@@ -46,6 +47,16 @@ message RevokePairingCodeRequest {
 }
 
 message RevokePairingCodeResponse {
+  bool   success = 1;
+  string message = 2;
+}
+
+message RevokeDeviceRequest {
+  string device_id = 1;
+  int64  ttl_seconds = 2;
+}
+
+message RevokeDeviceResponse {
   bool   success = 1;
   string message = 2;
 }

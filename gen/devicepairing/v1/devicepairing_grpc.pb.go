@@ -22,6 +22,7 @@ const (
 	DevicePairingService_CachePairingCodes_FullMethodName = "/devicepairing.v1.DevicePairingService/CachePairingCodes"
 	DevicePairingService_CachePairingCode_FullMethodName  = "/devicepairing.v1.DevicePairingService/CachePairingCode"
 	DevicePairingService_RevokePairingCode_FullMethodName = "/devicepairing.v1.DevicePairingService/RevokePairingCode"
+	DevicePairingService_RevokeDevice_FullMethodName      = "/devicepairing.v1.DevicePairingService/RevokeDevice"
 )
 
 // DevicePairingServiceClient is the client API for DevicePairingService service.
@@ -31,6 +32,7 @@ type DevicePairingServiceClient interface {
 	CachePairingCodes(ctx context.Context, in *CachePairingCodesRequest, opts ...grpc.CallOption) (*CachePairingCodesResponse, error)
 	CachePairingCode(ctx context.Context, in *CachePairingCodeRequest, opts ...grpc.CallOption) (*CachePairingCodeResponse, error)
 	RevokePairingCode(ctx context.Context, in *RevokePairingCodeRequest, opts ...grpc.CallOption) (*RevokePairingCodeResponse, error)
+	RevokeDevice(ctx context.Context, in *RevokeDeviceRequest, opts ...grpc.CallOption) (*RevokeDeviceResponse, error)
 }
 
 type devicePairingServiceClient struct {
@@ -71,6 +73,16 @@ func (c *devicePairingServiceClient) RevokePairingCode(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *devicePairingServiceClient) RevokeDevice(ctx context.Context, in *RevokeDeviceRequest, opts ...grpc.CallOption) (*RevokeDeviceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeDeviceResponse)
+	err := c.cc.Invoke(ctx, DevicePairingService_RevokeDevice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DevicePairingServiceServer is the server API for DevicePairingService service.
 // All implementations must embed UnimplementedDevicePairingServiceServer
 // for forward compatibility.
@@ -78,6 +90,7 @@ type DevicePairingServiceServer interface {
 	CachePairingCodes(context.Context, *CachePairingCodesRequest) (*CachePairingCodesResponse, error)
 	CachePairingCode(context.Context, *CachePairingCodeRequest) (*CachePairingCodeResponse, error)
 	RevokePairingCode(context.Context, *RevokePairingCodeRequest) (*RevokePairingCodeResponse, error)
+	RevokeDevice(context.Context, *RevokeDeviceRequest) (*RevokeDeviceResponse, error)
 	mustEmbedUnimplementedDevicePairingServiceServer()
 }
 
@@ -96,6 +109,9 @@ func (UnimplementedDevicePairingServiceServer) CachePairingCode(context.Context,
 }
 func (UnimplementedDevicePairingServiceServer) RevokePairingCode(context.Context, *RevokePairingCodeRequest) (*RevokePairingCodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RevokePairingCode not implemented")
+}
+func (UnimplementedDevicePairingServiceServer) RevokeDevice(context.Context, *RevokeDeviceRequest) (*RevokeDeviceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeDevice not implemented")
 }
 func (UnimplementedDevicePairingServiceServer) mustEmbedUnimplementedDevicePairingServiceServer() {}
 func (UnimplementedDevicePairingServiceServer) testEmbeddedByValue()                              {}
@@ -172,6 +188,24 @@ func _DevicePairingService_RevokePairingCode_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DevicePairingService_RevokeDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeDeviceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DevicePairingServiceServer).RevokeDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DevicePairingService_RevokeDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DevicePairingServiceServer).RevokeDevice(ctx, req.(*RevokeDeviceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DevicePairingService_ServiceDesc is the grpc.ServiceDesc for DevicePairingService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -190,6 +224,10 @@ var DevicePairingService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RevokePairingCode",
 			Handler:    _DevicePairingService_RevokePairingCode_Handler,
+		},
+		{
+			MethodName: "RevokeDevice",
+			Handler:    _DevicePairingService_RevokeDevice_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
