@@ -9,6 +9,8 @@ import (
 
 	devicepairingv1 "github.com/ramisoul84/kfc-userapi/gen/devicepairing/v1"
 	"github.com/ramisoul84/kfc-userapi/internal/config"
+	"github.com/ramisoul84/kfc-userapi/internal/service"
+	"github.com/ramisoul84/kfc-userapi/pkg/jwt"
 	"github.com/ramisoul84/kfc-userapi/pkg/logger"
 )
 
@@ -22,11 +24,14 @@ type Transport struct {
 func NewTransport(
 	cfg *config.Config,
 	log *logger.Logger,
-	devicePairingServerServer *DevicePairingServer,
+	pairingSvc service.PairingService,
+	authSvc service.DeviceAuthService,
+	tokens *jwt.DeviceTokenManager,
 ) *Transport {
 	srv := grpc.NewServer()
 
-	devicepairingv1.RegisterDevicePairingServiceServer(srv, devicePairingServerServer)
+	pairingServer := NewDevicePairingServer(pairingSvc, authSvc, tokens, log)
+	devicepairingv1.RegisterDevicePairingServiceServer(srv, pairingServer)
 
 	return &Transport{srv: srv, cfg: cfg, logger: log}
 }
@@ -38,7 +43,7 @@ func (t *Transport) Start() error {
 		return fmt.Errorf("grpc listen %s: %w", addr, err)
 	}
 
-	t.logger.Info("grpc userapi server listening", "addr", addr)
+	t.logger.Info("grpc device pairing server listening", "addr", addr)
 	if err := t.srv.Serve(lis); err != nil {
 		return fmt.Errorf("grpc serve: %w", err)
 	}
