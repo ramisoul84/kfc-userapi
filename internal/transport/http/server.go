@@ -8,20 +8,30 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/ramisoul84/kfc-userapi/internal/config"
+	"github.com/ramisoul84/kfc-userapi/internal/repository"
+	"github.com/ramisoul84/kfc-userapi/internal/transport/http/handler"
+	"github.com/ramisoul84/kfc-userapi/internal/transport/http/middleware"
+	"github.com/ramisoul84/kfc-userapi/pkg/jwt"
 	"github.com/ramisoul84/kfc-userapi/pkg/logger"
 )
 
 // Server wraps the Fiber app with lifecycle methods.
 type Server struct {
-	app    *fiber.App
-	cfg    *config.Config
-	logger *logger.Logger
+	app               *fiber.App
+	cfg               *config.Config
+	logger            *logger.Logger
+	deviceAuthHandler *handler.DeviceAuthHandler
+	deviceTokens      *jwt.DeviceTokenManager
+	revocationRepo    repository.RevocationRepository
 }
 
 // NewServer creates a Fiber app configured from cfg.
 func NewServer(
 	cfg *config.Config,
 	log *logger.Logger,
+	deviceAuthHandler *handler.DeviceAuthHandler,
+	deviceTokens *jwt.DeviceTokenManager,
+	revocationRepo repository.RevocationRepository,
 ) *Server {
 	app := fiber.New(fiber.Config{
 		AppName:               cfg.App.Name,
@@ -32,9 +42,12 @@ func NewServer(
 	})
 
 	s := &Server{
-		app:    app,
-		cfg:    cfg,
-		logger: log,
+		app:               app,
+		cfg:               cfg,
+		logger:            log,
+		deviceAuthHandler: deviceAuthHandler,
+		deviceTokens:      deviceTokens,
+		revocationRepo:    revocationRepo,
 	}
 
 	s.registerMiddleware()
@@ -83,8 +96,14 @@ func (s *Server) registerRoutes() {
 	// Health check (public)
 	s.app.Get("/health", s.healthCheck)
 
-	// API v1
-	_ = s.app.Group("/api/v1")
+	api := s.app.Group("/api/v1")
+
+	// ── Public: device pairing ──
+	devices := api.Group("/devices")
+	devices.Post("/pair", s.deviceAuthHandler.Pair)
+
+	// ── Protected: device-authenticated routes ──
+	_ = api.Group("", middleware.DeviceAuth(s.deviceTokens, s.revocationRepo))
 }
 
 // ═══════════════════════════════════════════════════════════════════

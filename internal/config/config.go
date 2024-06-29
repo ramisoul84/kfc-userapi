@@ -13,6 +13,7 @@ type Config struct {
 	HTTP   HTTPConfig
 	GRPC   GRPCConfig
 	Redis  RedisConfig
+	JWT    JWTConfig
 }
 
 // AppConfig holds application-level configuration.
@@ -60,6 +61,12 @@ type RedisConfig struct {
 	WriteTimeout   time.Duration
 }
 
+type JWTConfig struct {
+	DeviceSecret string
+	DeviceTTL    time.Duration
+	Issuer       string
+}
+
 // Load reads configuration from environment variables and validates it.
 func Load() (*Config, error) {
 	env := getEnv("APP_ENV", "development")
@@ -105,6 +112,12 @@ func Load() (*Config, error) {
 			DialTimeout:    getEnvDuration("REDIS_DIAL_TIMEOUT", 5*time.Second),
 			ReadTimeout:    getEnvDuration("REDIS_READ_TIMEOUT", 3*time.Second),
 			WriteTimeout:   getEnvDuration("REDIS_WRITE_TIMEOUT", 3*time.Second),
+		},
+
+		JWT: JWTConfig{
+			DeviceSecret: getEnv("JWT_DEVICE_SECRET", ""),
+			DeviceTTL:    getEnvDuration("JWT_DEVICE_TTL", 168*time.Hour),
+			Issuer:       getEnv("JWT_ISSUER", "kfc-userapi"),
 		},
 	}
 

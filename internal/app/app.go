@@ -10,7 +10,9 @@ import (
 	"github.com/ramisoul84/kfc-userapi/internal/service"
 	grpcTransport "github.com/ramisoul84/kfc-userapi/internal/transport/grpc"
 	httpTransport "github.com/ramisoul84/kfc-userapi/internal/transport/http"
+	"github.com/ramisoul84/kfc-userapi/internal/transport/http/handler"
 	"github.com/ramisoul84/kfc-userapi/pkg/cache"
+	"github.com/ramisoul84/kfc-userapi/pkg/jwt"
 	"github.com/ramisoul84/kfc-userapi/pkg/logger"
 )
 
@@ -48,16 +50,27 @@ func New(cfg *config.Config) (*App, error) {
 
 	// Repos
 	pairingRepo := repository.NewPairingRepository(redisClient)
+	revocationRepo := repository.NewRevocationRepository(redisClient)
+
+	// Token manager
+	deviceTokens := jwt.NewDeviceTokenManager(
+		cfg.JWT.DeviceSecret,
+		cfg.JWT.Issuer,
+		cfg.JWT.DeviceTTL,
+	)
 
 	// Services
 	pairingSvc := service.NewPairingService(pairingRepo, log)
+	deviceAuthSvc := service.NewDeviceAuthService(pairingRepo, revocationRepo, deviceTokens, log)
+
+	// Handlers
+	deviceAuthHandler := handler.NewDeviceAuthHandler(deviceAuthSvc)
 
 	// HTTP transport
-	httpServer := httpTransport.NewServer(cfg, log)
+	httpServer := httpTransport.NewServer(cfg, log, deviceAuthHandler, deviceTokens, revocationRepo)
 
 	// gRPC transport
-	userapiServer := grpcTransport.NewUserAPIServer(pairingSvc, log)
-	grpcSrv := grpcTransport.NewTransport(cfg, log, userapiServer)
+	grpcSrv := grpcTransport.NewTransport(cfg, log, pairingSvc, deviceAuthSvc, deviceTokens)
 
 	return &App{
 		config:     cfg,
