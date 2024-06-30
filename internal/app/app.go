@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/ramisoul84/kfc-userapi/internal/config"
+	"github.com/ramisoul84/kfc-userapi/internal/consumer"
 	"github.com/ramisoul84/kfc-userapi/internal/repository"
 	"github.com/ramisoul84/kfc-userapi/internal/service"
 	grpcTransport "github.com/ramisoul84/kfc-userapi/internal/transport/grpc"
@@ -13,16 +14,18 @@ import (
 	"github.com/ramisoul84/kfc-userapi/internal/transport/http/handler"
 	"github.com/ramisoul84/kfc-userapi/pkg/cache"
 	"github.com/ramisoul84/kfc-userapi/pkg/jwt"
+	"github.com/ramisoul84/kfc-userapi/pkg/kafka"
 	"github.com/ramisoul84/kfc-userapi/pkg/logger"
 )
 
 // App wires together all application components.
 type App struct {
-	config     *config.Config
-	logger     *logger.Logger
-	httpServer *httpTransport.Server
-	grpcServer *grpcTransport.Transport
-	redis      *cache.Redis
+	config        *config.Config
+	logger        *logger.Logger
+	httpServer    *httpTransport.Server
+	grpcServer    *grpcTransport.Transport
+	redis         *cache.Redis
+	kafkaConsumer *kafka.Consumer
 }
 
 // New creates and wires the application.
@@ -47,6 +50,28 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("redis: %w", err)
 	}
 	log.Info("redis connected", "host", cfg.Redis.Host, "port", cfg.Redis.Port)
+
+	// Kafka consumer
+	var kafkaConsumer *kafka.Consumer
+	if len(cfg.Kafka.Brokers) > 0 {
+		menuConsumer := consumer.NewMenuConsumer(redisClient, log)
+
+		kafkaConsumer = kafka.NewConsumer(
+			cfg.Kafka.Brokers,
+			cfg.Kafka.MenuTopic,
+			cfg.Kafka.GroupID,
+			menuConsumer.Handle,
+			log,
+		)
+
+		log.Info("kafka consumer initialized",
+			"brokers", cfg.Kafka.Brokers,
+			"topic", cfg.Kafka.MenuTopic,
+			"group", cfg.Kafka.GroupID,
+		)
+	} else {
+		log.Warn("kafka disabled; menu cache will only expire via TTL")
+	}
 
 	// Repos
 	pairingRepo := repository.NewPairingRepository(redisClient)
@@ -73,11 +98,12 @@ func New(cfg *config.Config) (*App, error) {
 	grpcSrv := grpcTransport.NewTransport(cfg, log, pairingSvc, deviceAuthSvc, deviceTokens)
 
 	return &App{
-		config:     cfg,
-		logger:     log,
-		httpServer: httpServer,
-		grpcServer: grpcSrv,
-		redis:      redisClient,
+		config:        cfg,
+		logger:        log,
+		httpServer:    httpServer,
+		grpcServer:    grpcSrv,
+		redis:         redisClient,
+		kafkaConsumer: kafkaConsumer,
 	}, nil
 }
 
@@ -99,6 +125,10 @@ func (a *App) Start(ctx context.Context) error {
 		}
 	}()
 
+	if a.kafkaConsumer != nil {
+		a.kafkaConsumer.Start(ctx)
+	}
+
 	select {
 	case <-ctx.Done():
 		a.logger.Info("shutdown signal received")
@@ -114,6 +144,13 @@ func (a *App) Shutdown(ctx context.Context) error {
 	a.logger.Info("shutting down application")
 
 	var errs []error
+
+	if a.kafkaConsumer != nil {
+		if err := a.kafkaConsumer.Stop(); err != nil {
+			a.logger.Error("kafka consumer stop failed", "error", err)
+			errs = append(errs, fmt.Errorf("kafka consumer: %w", err))
+		}
+	}
 
 	if err := a.httpServer.Shutdown(ctx); err != nil {
 		a.logger.Error("http shutdown failed", "error", err)

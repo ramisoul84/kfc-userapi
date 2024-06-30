@@ -140,3 +140,18 @@ func getEnvInt(key string, fallback int) int {
 	}
 	return n
 }
+
+func getEnvSlice(key string, fallback []string) []string {
+	raw := getEnv(key, "")
+	if raw == "" {
+		return fallback
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}

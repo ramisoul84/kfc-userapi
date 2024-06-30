@@ -14,6 +14,7 @@ type Config struct {
 	GRPC   GRPCConfig
 	Redis  RedisConfig
 	JWT    JWTConfig
+	Kafka  KafkaConfig
 }
 
 // AppConfig holds application-level configuration.
@@ -67,6 +68,12 @@ type JWTConfig struct {
 	Issuer       string
 }
 
+type KafkaConfig struct {
+	Brokers   []string
+	GroupID   string
+	MenuTopic string
+}
+
 // Load reads configuration from environment variables and validates it.
 func Load() (*Config, error) {
 	env := getEnv("APP_ENV", "development")
@@ -118,6 +125,12 @@ func Load() (*Config, error) {
 			DeviceSecret: getEnv("JWT_DEVICE_SECRET", ""),
 			DeviceTTL:    getEnvDuration("JWT_DEVICE_TTL", 168*time.Hour),
 			Issuer:       getEnv("JWT_ISSUER", "kfc-userapi"),
+		},
+
+		Kafka: KafkaConfig{
+			Brokers:   getEnvSlice("KAFKA_BROKERS", []string{"localhost:29092"}),
+			GroupID:   getEnv("KAFKA_GROUP_ID", "kfc-userapi"),
+			MenuTopic: getEnv("KAFKA_MENU_TOPIC", "crm.menu.updated"),
 		},
 	}
 
