@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package kfc.menu.v1;
+
+option go_package = "github.com/ramisoul84/kfc-userapi/gen/menu/v1;menuv1";
+
+// MenuService exposes the computed effective menu to internal services.
+// Source of truth: kfc-crm Postgres tables:
+//   menu_categories, menu_items, menu_item_variations,
+//   restaurant_menu_overrides, menu_promotions, menu_promotion_items.
+//
+// Response = menu_items merged with restaurant_menu_overrides and
+// active menu_promotions.
+//
+// Auth: service-to-service (gRPC metadata token or mTLS).
+// Cache contract (userapi side):
+//   key: menu:restaurant:{restaurant_id}
+//   ttl: 24h, invalidated by Kafka topic "crm.menu.updated".
+service MenuService {
+  rpc GetEffectiveMenu(GetEffectiveMenuRequest) returns (GetEffectiveMenuResponse);
+}
+
+message GetEffectiveMenuRequest {
+  // restaurants.id — required.
+  string restaurant_id = 1;
+}
+
+message GetEffectiveMenuResponse {
+  string restaurant_id = 1; // restaurants.id
+  int64  generated_at  = 2; // unix seconds
+  string currency      = 3; // "RUB"
+  repeated Category categories = 4;
+  uint32 schema_version = 5; // bump on incompatible changes
+}
+
+// ─────────────────────────────────────────────────────────────────
+// menu_categories
+// ─────────────────────────────────────────────────────────────────
+
+message Category {
+  string id         = 1; // menu_categories.id
+  string name       = 2; // menu_categories.name
+  string code       = 3; // menu_categories.code
+  string image_url  = 4; // menu_categories.image_url
+  int32  sort_order = 5; // menu_categories.sort_order
+  repeated Item items = 6;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// menu_items merged with overrides + promotions
+// ─────────────────────────────────────────────────────────────────
+
+message Item {
+  string id           = 1; // menu_items.id
+  string product_code = 2; // menu_items.product_code
+  string name         = 3; // menu_items.name
+  string description  = 4; // menu_items.description
+  string image_url    = 5; // menu_items.image_url
+
+  double base_price  = 6; // menu_items.base_price
+  double final_price = 7; // after override + promotion
+  string currency    = 8; // "RUB"
+
+  bool  is_available = 9;  // menu_items.is_active merged with override
+  int32 sort_order   = 10; // menu_items.sort_order
+
+  Promotion promotion = 11; // set only when one applies
+  repeated Variation variations = 12;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// menu_promotions (resolved for this item)
+// ─────────────────────────────────────────────────────────────────
+
+message Promotion {
+  string id               = 1; // menu_promotions.id
+  string name             = 2; // menu_promotions.name
+  string discount_type    = 3; // "percentage" | "fixed"
+  double discount_value   = 4; // menu_promotions.discount_value
+  double original_price   = 5; // before discount
+  double discounted_price = 6; // after discount == item.final_price
+  int64  ends_at          = 7; // menu_promotions.ends_at, unix seconds
+}
+
+// ─────────────────────────────────────────────────────────────────
+// menu_item_variations (with effective prices applied)
+// ─────────────────────────────────────────────────────────────────
+
+message Variation {
+  string id          = 1; // menu_item_variations.id
+  string name        = 2; // menu_item_variations.name
+  double price_delta = 3; // menu_item_variations.price_delta
+  double final_price = 4; // item.final_price + price_delta
+  bool   is_default  = 5; // menu_item_variations.is_default
+  int32  sort_order  = 6; // menu_item_variations.sort_order
+}

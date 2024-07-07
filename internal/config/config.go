@@ -15,6 +15,7 @@ type Config struct {
 	Redis  RedisConfig
 	JWT    JWTConfig
 	Kafka  KafkaConfig
+	CRM    CRMConfig
 }
 
 // AppConfig holds application-level configuration.
@@ -74,6 +75,11 @@ type KafkaConfig struct {
 	MenuTopic string
 }
 
+type CRMConfig struct {
+	Address string
+	Timeout time.Duration
+}
+
 // Load reads configuration from environment variables and validates it.
 func Load() (*Config, error) {
 	env := getEnv("APP_ENV", "development")
@@ -131,6 +137,11 @@ func Load() (*Config, error) {
 			Brokers:   getEnvSlice("KAFKA_BROKERS", []string{"localhost:29092"}),
 			GroupID:   getEnv("KAFKA_GROUP_ID", "kfc-userapi"),
 			MenuTopic: getEnv("KAFKA_MENU_TOPIC", "crm.menu.updated"),
+		},
+
+		CRM: CRMConfig{
+			Address: getEnv("CRM_GRPC_ADDRESS", "localhost:9090"),
+			Timeout: getEnvDuration("CRM_GRPC_TIMEOUT", 5*time.Second),
 		},
 	}
 
