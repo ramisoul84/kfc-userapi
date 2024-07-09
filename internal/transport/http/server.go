@@ -21,6 +21,8 @@ type Server struct {
 	cfg               *config.Config
 	logger            *logger.Logger
 	deviceAuthHandler *handler.DeviceAuthHandler
+	menuHandler       *handler.MenuHandler
+	menuStreamHandler *handler.MenuStreamHandler
 	deviceTokens      *jwt.DeviceTokenManager
 	revocationRepo    repository.RevocationRepository
 }
@@ -30,6 +32,8 @@ func NewServer(
 	cfg *config.Config,
 	log *logger.Logger,
 	deviceAuthHandler *handler.DeviceAuthHandler,
+	menuHandler *handler.MenuHandler,
+	menuStreamHandler *handler.MenuStreamHandler,
 	deviceTokens *jwt.DeviceTokenManager,
 	revocationRepo repository.RevocationRepository,
 ) *Server {
@@ -46,6 +50,8 @@ func NewServer(
 		cfg:               cfg,
 		logger:            log,
 		deviceAuthHandler: deviceAuthHandler,
+		menuHandler:       menuHandler,
+		menuStreamHandler: menuStreamHandler,
 		deviceTokens:      deviceTokens,
 		revocationRepo:    revocationRepo,
 	}
@@ -82,9 +88,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) registerMiddleware() {
 	s.app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowMethods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
-		AllowHeaders: "Origin,Content-Type,Accept,Authorization,X-Request-ID",
+		AllowOrigins:     "http://localhost:4300",
+		AllowMethods:     "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+		AllowHeaders:     "Origin,Content-Type,Accept,Authorization,X-Request-ID",
+		AllowCredentials: true,
 	}))
 }
 
@@ -101,6 +108,14 @@ func (s *Server) registerRoutes() {
 	// ── Public: device pairing ──
 	devices := api.Group("/devices")
 	devices.Post("/pair", s.deviceAuthHandler.Pair)
+
+	// Menu (HTTP): kiosk fetches the effective menu here.
+	api.Get("/restaurants/:restaurant_id/menu", s.menuHandler.Get)
+
+	// Menu stream (SSE): kiosk subscribes to menu updates here.
+	// Declared exactly once.
+	api.Get("/restaurants/:restaurant_id/menu/stream",
+		s.menuStreamHandler.Stream)
 
 	// ── Protected: device-authenticated routes ──
 	_ = api.Group("", middleware.DeviceAuth(s.deviceTokens, s.revocationRepo))

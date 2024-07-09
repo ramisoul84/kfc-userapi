@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ramisoul84/kfc-userapi/internal/client"
 	"github.com/ramisoul84/kfc-userapi/internal/config"
 	"github.com/ramisoul84/kfc-userapi/internal/consumer"
 	"github.com/ramisoul84/kfc-userapi/internal/repository"
 	"github.com/ramisoul84/kfc-userapi/internal/service"
+	"github.com/ramisoul84/kfc-userapi/internal/sse"
 	grpcTransport "github.com/ramisoul84/kfc-userapi/internal/transport/grpc"
 	httpTransport "github.com/ramisoul84/kfc-userapi/internal/transport/http"
 	"github.com/ramisoul84/kfc-userapi/internal/transport/http/handler"
@@ -25,6 +27,7 @@ type App struct {
 	httpServer    *httpTransport.Server
 	grpcServer    *grpcTransport.Transport
 	redis         *cache.Redis
+	crmClient     client.CRMClient
 	kafkaConsumer *kafka.Consumer
 }
 
@@ -51,10 +54,12 @@ func New(cfg *config.Config) (*App, error) {
 	}
 	log.Info("redis connected", "host", cfg.Redis.Host, "port", cfg.Redis.Port)
 
+	sseHub := sse.NewHub(log)
+
 	// Kafka consumer
 	var kafkaConsumer *kafka.Consumer
 	if len(cfg.Kafka.Brokers) > 0 {
-		menuConsumer := consumer.NewMenuConsumer(redisClient, log)
+		menuConsumer := consumer.NewMenuConsumer(redisClient, sseHub, log)
 
 		kafkaConsumer = kafka.NewConsumer(
 			cfg.Kafka.Brokers,
@@ -73,9 +78,16 @@ func New(cfg *config.Config) (*App, error) {
 		log.Warn("kafka disabled; menu cache will only expire via TTL")
 	}
 
+	crmClient, err := client.NewCRMClient(&cfg.CRM)
+	if err != nil {
+		return nil, fmt.Errorf("crm grpc client: %w", err)
+	}
+	log.Info("crm grpc client initialized", "address", cfg.CRM.Address)
+
 	// Repos
 	pairingRepo := repository.NewPairingRepository(redisClient)
 	revocationRepo := repository.NewRevocationRepository(redisClient)
+	menuCacheRepo := repository.NewMenuCacheRepository(redisClient)
 
 	// Token manager
 	deviceTokens := jwt.NewDeviceTokenManager(
@@ -87,12 +99,23 @@ func New(cfg *config.Config) (*App, error) {
 	// Services
 	pairingSvc := service.NewPairingService(pairingRepo, log)
 	deviceAuthSvc := service.NewDeviceAuthService(pairingRepo, revocationRepo, deviceTokens, log)
+	menuService := service.NewMenuService(menuCacheRepo, crmClient, log)
 
 	// Handlers
 	deviceAuthHandler := handler.NewDeviceAuthHandler(deviceAuthSvc)
+	menuStreamHandler := handler.NewMenuStreamHandler(sseHub, log)
+	menuHandler := handler.NewMenuHandler(menuService, log)
 
 	// HTTP transport
-	httpServer := httpTransport.NewServer(cfg, log, deviceAuthHandler, deviceTokens, revocationRepo)
+	httpServer := httpTransport.NewServer(
+		cfg,
+		log,
+		deviceAuthHandler,
+		menuHandler,
+		menuStreamHandler,
+		deviceTokens,
+		revocationRepo,
+	)
 
 	// gRPC transport
 	grpcSrv := grpcTransport.NewTransport(cfg, log, pairingSvc, deviceAuthSvc, deviceTokens)
@@ -155,6 +178,12 @@ func (a *App) Shutdown(ctx context.Context) error {
 	if err := a.httpServer.Shutdown(ctx); err != nil {
 		a.logger.Error("http shutdown failed", "error", err)
 		errs = append(errs, fmt.Errorf("http shutdown: %w", err))
+	}
+	if a.crmClient != nil {
+		if err := a.crmClient.Close(); err != nil {
+			a.logger.Error("crm grpc client close failed", "error", err)
+			errs = append(errs, fmt.Errorf("crm client: %w", err))
+		}
 	}
 	if err := a.grpcServer.Shutdown(ctx); err != nil {
 		a.logger.Error("grpc shutdown failed", "error", err)

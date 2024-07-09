@@ -42,9 +42,10 @@ type DeviceAuthService interface {
 
 // PairResult is returned on successful pairing.
 type PairResult struct {
-	Token     string
-	ExpiresAt time.Time
-	DeviceID  uuid.UUID
+	Token        string
+	ExpiresAt    time.Time
+	DeviceID     uuid.UUID
+	RestaurantID uuid.UUID
 }
 
 type deviceAuthService struct {
@@ -145,9 +146,10 @@ func (s *deviceAuthService) Pair(
 	)
 
 	return &PairResult{
-		Token:     token,
-		ExpiresAt: claims.ExpiresAt,
-		DeviceID:  meta.DeviceID,
+		Token:        token,
+		ExpiresAt:    claims.ExpiresAt,
+		DeviceID:     meta.DeviceID,
+		RestaurantID: meta.RestaurantID,
 	}, nil
 }
 

@@ -29,10 +29,11 @@ type PairRequest struct {
 
 // PairResponse is returned on a successful pairing.
 type PairResponse struct {
-	Token     string `json:"token"`
-	TokenType string `json:"token_type"` // "Bearer"
-	ExpiresAt int64  `json:"expires_at"` // unix seconds
-	DeviceID  string `json:"device_id"`
+	Token        string `json:"token"`
+	TokenType    string `json:"token_type"` // "Bearer"
+	ExpiresAt    int64  `json:"expires_at"` // unix seconds
+	DeviceID     string `json:"device_id"`
+	RestaurantID string `json:"restaurant_id"`
 }
 
 // Pair validates a pairing code and issues a long-lived device token.
@@ -62,10 +63,11 @@ func (h *DeviceAuthHandler) Pair(c *fiber.Ctx) error {
 	}
 
 	return response.OK(c, PairResponse{
-		Token:     result.Token,
-		TokenType: "Bearer",
-		ExpiresAt: result.ExpiresAt.Unix(),
-		DeviceID:  result.DeviceID.String(),
+		Token:        result.Token,
+		TokenType:    "Bearer",
+		ExpiresAt:    result.ExpiresAt.Unix(),
+		DeviceID:     result.DeviceID.String(),
+		RestaurantID: result.RestaurantID.String(),
 	})
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ramisoul84/kfc-userapi/internal/events"
+	"github.com/ramisoul84/kfc-userapi/internal/sse"
 	"github.com/ramisoul84/kfc-userapi/pkg/cache"
 	"github.com/ramisoul84/kfc-userapi/pkg/logger"
 )
@@ -19,11 +20,12 @@ const MenuCacheKeyPrefix = "menu:restaurant:"
 // corresponding menu cache entries.
 type MenuConsumer struct {
 	redis  *cache.Redis
+	hub    *sse.Hub
 	logger *logger.Logger
 }
 
-func NewMenuConsumer(redis *cache.Redis, log *logger.Logger) *MenuConsumer {
-	return &MenuConsumer{redis: redis, logger: log}
+func NewMenuConsumer(redis *cache.Redis, hub *sse.Hub, log *logger.Logger) *MenuConsumer {
+	return &MenuConsumer{redis: redis, hub: hub, logger: log}
 }
 
 // Handle is the MessageHandler signature required by kafka.Consumer.
@@ -39,14 +41,26 @@ func (m *MenuConsumer) Handle(ctx context.Context, _ string, value []byte) error
 		"reason", evt.Reason,
 	)
 
-	if evt.RestaurantID == "" {
-		return m.invalidateAll(ctx, evt.Reason)
+	// 1. Invalidate cache.
+	if err := m.invalidate(ctx, evt); err != nil {
+		m.logger.Error("cache invalidation failed", "error", err)
 	}
 
-	return m.invalidateRestaurant(ctx, evt.RestaurantID, evt.Reason)
+	// 2. Broadcast to connected SSE clients.
+	m.hub.Publish(evt.RestaurantID, value)
+
+	return nil
 }
 
 // ─────────────────────────────────────────────────────────────────
+
+// invalidate deletes the affected cache keys.
+func (m *MenuConsumer) invalidate(ctx context.Context, evt events.MenuUpdatedEvent) error {
+	if evt.RestaurantID == "" {
+		return m.invalidateAll(ctx, evt.Reason)
+	}
+	return m.invalidateRestaurant(ctx, evt.RestaurantID, evt.Reason)
+}
 
 func (m *MenuConsumer) invalidateRestaurant(
 	ctx context.Context,
