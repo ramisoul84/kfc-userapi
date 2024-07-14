@@ -21,6 +21,7 @@ message PairingCode {
   string serial_number = 1;
   string device_id     = 2;
   string code          = 3;
+  string device_type   = 4; // kiosk | kds | order_display | pos
 }
 
 message CachePairingCodesResponse {
@@ -35,6 +36,7 @@ message CachePairingCodeRequest {
   string device_id     = 3;
   string code          = 4;
   int64  expires_at    = 5;
+  string device_type   = 6; // kiosk | kds | order_display | pos
 }
 
 message CachePairingCodeResponse {

@@ -15,6 +15,7 @@ import (
 // PairingCodeData is the non-secret metadata stored alongside a code.
 type PairingCodeData struct {
 	DeviceID     uuid.UUID `json:"device_id"`
+	DeviceType   string    `json:"device_type"`
 	RestaurantID uuid.UUID `json:"restaurant_id"`
 	ExpiresAt    time.Time `json:"expires_at"`
 }

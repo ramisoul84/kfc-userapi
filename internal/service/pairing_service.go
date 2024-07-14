@@ -34,6 +34,7 @@ type CacheCodesRequest struct {
 type CodeEntry struct {
 	SerialNumber string
 	DeviceID     uuid.UUID
+	DeviceType   string
 	Code         string // plaintext; hashed before storage
 }
 
@@ -41,6 +42,7 @@ type CacheCodeRequest struct {
 	RestaurantID uuid.UUID
 	SerialNumber string
 	DeviceID     uuid.UUID
+	DeviceType   string
 	Code         string
 	ExpiresAt    time.Time
 }
@@ -84,6 +86,7 @@ func (s *pairingService) CacheCodes(ctx context.Context, req *CacheCodesRequest)
 			CodeHash: string(hash),
 			Meta: &repository.PairingCodeData{
 				DeviceID:     c.DeviceID,
+				DeviceType:   c.DeviceType,
 				RestaurantID: req.RestaurantID,
 				ExpiresAt:    req.ExpiresAt,
 			},
@@ -117,6 +120,7 @@ func (s *pairingService) CacheCode(ctx context.Context, req *CacheCodeRequest) e
 
 	if err := s.repo.SetCode(ctx, req.SerialNumber, string(hash), &repository.PairingCodeData{
 		DeviceID:     req.DeviceID,
+		DeviceType:   req.DeviceType,
 		RestaurantID: req.RestaurantID,
 		ExpiresAt:    req.ExpiresAt,
 	}); err != nil {

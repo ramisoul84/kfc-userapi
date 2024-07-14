@@ -16,9 +16,18 @@ type Device struct {
 	IsActive     bool
 }
 
+// Device types, as registered in CRM.
+const (
+	DeviceTypeKiosk        = "kiosk"
+	DeviceTypeKDS          = "kds"
+	DeviceTypeOrderDisplay = "order_display"
+	DeviceTypePOS          = "pos"
+)
+
 // DeviceTokenClaims are the claims embedded in a device JWT.
 type DeviceTokenClaims struct {
 	DeviceID     uuid.UUID
+	DeviceType   string
 	SerialNumber string
 	RestaurantID uuid.UUID
 	TokenID      string // jti — unique per issued token, for revocation

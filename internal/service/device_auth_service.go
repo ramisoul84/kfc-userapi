@@ -45,6 +45,7 @@ type PairResult struct {
 	Token        string
 	ExpiresAt    time.Time
 	DeviceID     uuid.UUID
+	DeviceType   string
 	RestaurantID uuid.UUID
 }
 
@@ -127,7 +128,7 @@ func (s *deviceAuthService) Pair(
 	}
 
 	// 5. Issue a JWT with the device identity.
-	claims, token, err := s.tokens.Issue(meta.DeviceID, serial, meta.RestaurantID)
+	claims, token, err := s.tokens.Issue(meta.DeviceID, meta.DeviceType, serial, meta.RestaurantID)
 	if err != nil {
 		s.logger.Error("pair: issue token failed",
 			"serial_number", serial,
@@ -139,6 +140,7 @@ func (s *deviceAuthService) Pair(
 
 	s.logger.Info("device paired",
 		"device_id", meta.DeviceID,
+		"device_type", meta.DeviceType,
 		"serial_number", serial,
 		"restaurant_id", meta.RestaurantID,
 		"token_id", claims.TokenID,
@@ -149,6 +151,7 @@ func (s *deviceAuthService) Pair(
 		Token:        token,
 		ExpiresAt:    claims.ExpiresAt,
 		DeviceID:     meta.DeviceID,
+		DeviceType:   meta.DeviceType,
 		RestaurantID: meta.RestaurantID,
 	}, nil
 }

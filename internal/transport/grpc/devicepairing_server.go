@@ -62,6 +62,7 @@ func (s *DevicePairingServer) CachePairingCodes(
 		entries = append(entries, service.CodeEntry{
 			SerialNumber: c.GetSerialNumber(),
 			DeviceID:     deviceID,
+			DeviceType:   c.GetDeviceType(),
 			Code:         c.GetCode(),
 		})
 	}
@@ -103,6 +104,7 @@ func (s *DevicePairingServer) CachePairingCode(
 		RestaurantID: restaurantID,
 		SerialNumber: req.GetSerialNumber(),
 		DeviceID:     deviceID,
+		DeviceType:   req.GetDeviceType(),
 		Code:         req.GetCode(),
 		ExpiresAt:    time.Unix(req.GetExpiresAt(), 0).UTC(),
 	})

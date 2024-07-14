@@ -86,6 +86,7 @@ type PairingCode struct {
 	SerialNumber  string                 `protobuf:"bytes,1,opt,name=serial_number,json=serialNumber,proto3" json:"serial_number,omitempty"`
 	DeviceId      string                 `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	Code          string                 `protobuf:"bytes,3,opt,name=code,proto3" json:"code,omitempty"`
+	DeviceType    string                 `protobuf:"bytes,4,opt,name=device_type,json=deviceType,proto3" json:"device_type,omitempty"` // kiosk | kds | order_display | pos
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -137,6 +138,13 @@ func (x *PairingCode) GetDeviceId() string {
 func (x *PairingCode) GetCode() string {
 	if x != nil {
 		return x.Code
+	}
+	return ""
+}
+
+func (x *PairingCode) GetDeviceType() string {
+	if x != nil {
+		return x.DeviceType
 	}
 	return ""
 }
@@ -208,6 +216,7 @@ type CachePairingCodeRequest struct {
 	DeviceId      string                 `protobuf:"bytes,3,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	Code          string                 `protobuf:"bytes,4,opt,name=code,proto3" json:"code,omitempty"`
 	ExpiresAt     int64                  `protobuf:"varint,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	DeviceType    string                 `protobuf:"bytes,6,opt,name=device_type,json=deviceType,proto3" json:"device_type,omitempty"` // kiosk | kds | order_display | pos
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -275,6 +284,13 @@ func (x *CachePairingCodeRequest) GetExpiresAt() int64 {
 		return x.ExpiresAt
 	}
 	return 0
+}
+
+func (x *CachePairingCodeRequest) GetDeviceType() string {
+	if x != nil {
+		return x.DeviceType
+	}
+	return ""
 }
 
 type CachePairingCodeResponse struct {
@@ -538,22 +554,26 @@ const file_proto_userapi_v1_devicepairing_proto_rawDesc = "" +
 	"\rrestaurant_id\x18\x01 \x01(\tR\frestaurantId\x12\x1d\n" +
 	"\n" +
 	"expires_at\x18\x02 \x01(\x03R\texpiresAt\x123\n" +
-	"\x05codes\x18\x03 \x03(\v2\x1d.devicepairing.v1.PairingCodeR\x05codes\"c\n" +
+	"\x05codes\x18\x03 \x03(\v2\x1d.devicepairing.v1.PairingCodeR\x05codes\"\x84\x01\n" +
 	"\vPairingCode\x12#\n" +
 	"\rserial_number\x18\x01 \x01(\tR\fserialNumber\x12\x1b\n" +
 	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\x12\x12\n" +
-	"\x04code\x18\x03 \x01(\tR\x04code\"g\n" +
+	"\x04code\x18\x03 \x01(\tR\x04code\x12\x1f\n" +
+	"\vdevice_type\x18\x04 \x01(\tR\n" +
+	"deviceType\"g\n" +
 	"\x19CachePairingCodesResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x16\n" +
 	"\x06cached\x18\x02 \x01(\x05R\x06cached\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\xb3\x01\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"\xd4\x01\n" +
 	"\x17CachePairingCodeRequest\x12#\n" +
 	"\rrestaurant_id\x18\x01 \x01(\tR\frestaurantId\x12#\n" +
 	"\rserial_number\x18\x02 \x01(\tR\fserialNumber\x12\x1b\n" +
 	"\tdevice_id\x18\x03 \x01(\tR\bdeviceId\x12\x12\n" +
 	"\x04code\x18\x04 \x01(\tR\x04code\x12\x1d\n" +
 	"\n" +
-	"expires_at\x18\x05 \x01(\x03R\texpiresAt\"N\n" +
+	"expires_at\x18\x05 \x01(\x03R\texpiresAt\x12\x1f\n" +
+	"\vdevice_type\x18\x06 \x01(\tR\n" +
+	"deviceType\"N\n" +
 	"\x18CachePairingCodeResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"?\n" +

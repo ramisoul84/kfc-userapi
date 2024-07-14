@@ -38,12 +38,14 @@ func (m *DeviceTokenManager) TTL() time.Duration { return m.ttl }
 // Issue creates a signed JWT for a device.
 func (m *DeviceTokenManager) Issue(
 	deviceID uuid.UUID,
+	deviceType string,
 	serial string,
 	restaurantID uuid.UUID,
 ) (*domain.DeviceTokenClaims, string, error) {
 	now := time.Now().UTC()
 	claims := &domain.DeviceTokenClaims{
 		DeviceID:     deviceID,
+		DeviceType:   deviceType,
 		SerialNumber: serial,
 		RestaurantID: restaurantID,
 		TokenID:      uuid.NewString(),
@@ -57,6 +59,7 @@ func (m *DeviceTokenManager) Issue(
 		"sub":           claims.DeviceID.String(),
 		"jti":           claims.TokenID,
 		"device_id":     claims.DeviceID.String(),
+		"device_type":   claims.DeviceType,
 		"serial_number": claims.SerialNumber,
 		"restaurant_id": claims.RestaurantID.String(),
 		"iat":           claims.IssuedAt.Unix(),
@@ -113,6 +116,7 @@ func (m *DeviceTokenManager) Verify(raw string) (*domain.DeviceTokenClaims, erro
 
 	return &domain.DeviceTokenClaims{
 		DeviceID:     deviceID,
+		DeviceType:   stringClaim(mapClaims, "device_type"),
 		SerialNumber: stringClaim(mapClaims, "serial_number"),
 		RestaurantID: restaurantID,
 		TokenID:      stringClaim(mapClaims, "jti"),
