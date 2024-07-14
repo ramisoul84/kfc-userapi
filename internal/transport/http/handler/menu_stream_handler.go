@@ -56,18 +56,7 @@ func (h *MenuStreamHandler) Stream(c *fiber.Ctx) error {
 
 	sub := h.hub.Subscribe(restaurantID)
 	h.connections.Add(1)
-
-	// Cleanup on disconnect.
 	ctx := c.Context()
-	go func() {
-		<-ctx.Done()
-		h.hub.Unsubscribe(restaurantID, sub)
-		remaining := h.connections.Add(-1)
-		h.logger.Debug("sse subscriber removed",
-			"restaurant_id", restaurantID,
-			"remaining", remaining,
-		)
-	}()
 
 	h.logger.Info("sse subscriber connected",
 		"restaurant_id", restaurantID,
@@ -83,6 +72,18 @@ func (h *MenuStreamHandler) Stream(c *fiber.Ctx) error {
 	c.Status(fiber.StatusOK)
 
 	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		// A failed write is how fasthttp tells us the client left, so the
+		// subscription is released when this writer returns — not on
+		// ctx.Done, which only fires at server shutdown.
+		defer func() {
+			h.hub.Unsubscribe(restaurantID, sub)
+			remaining := h.connections.Add(-1)
+			h.logger.Debug("sse subscriber removed",
+				"restaurant_id", restaurantID,
+				"remaining", remaining,
+			)
+		}()
+
 		// 1. Tell the browser how long to wait before reconnecting.
 		if err := writeRetry(w, sseRetryHint); err != nil {
 			return
