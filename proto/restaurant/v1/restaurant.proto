@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package kfc.restaurant.v1;
+
+option go_package = "github.com/ramisoul84/kfc-userapi/gen/restaurant/v1;restaurantv1";
+
+// RestaurantDirectory exposes public, read-only restaurant data to
+// internal services. kfc-userapi uses it for the customer website's
+// "choose a restaurant" step and for device screen headers.
+//
+// Only active, non-deleted regions and restaurants are returned.
+service RestaurantDirectory {
+  rpc ListRegions(ListRegionsRequest) returns (ListRegionsResponse);
+  rpc ListRestaurants(ListRestaurantsRequest) returns (ListRestaurantsResponse);
+  rpc GetRestaurant(GetRestaurantRequest) returns (Restaurant);
+}
+
+message Region {
+  string id       = 1;
+  string name     = 2;
+  string code     = 3;
+  string timezone = 4;
+  int32  restaurant_count = 5;
+}
+
+message Restaurant {
+  string id          = 1;
+  string name        = 2;
+  string code        = 3;
+  string region_id   = 4;
+  string region_name = 5;
+  string address     = 6;
+  string city        = 7;
+  string phone       = 8;
+  string timezone    = 9;
+}
+
+message ListRegionsRequest {}
+
+message ListRegionsResponse {
+  repeated Region regions = 1;
+}
+
+message ListRestaurantsRequest {
+  string region_id = 1; // empty = all regions
+}
+
+message ListRestaurantsResponse {
+  repeated Restaurant restaurants = 1;
+}
+
+message GetRestaurantRequest {
+  string id = 1;
+}

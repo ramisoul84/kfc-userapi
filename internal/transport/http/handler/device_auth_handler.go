@@ -3,6 +3,7 @@ package handler
 import (
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/ramisoul84/kfc-userapi/internal/client"
 	"github.com/ramisoul84/kfc-userapi/internal/service"
 	"github.com/ramisoul84/kfc-userapi/internal/transport/http/middleware"
 	"github.com/ramisoul84/kfc-userapi/internal/transport/http/response"
@@ -11,10 +12,11 @@ import (
 // DeviceAuthHandler handles device-side authentication endpoints.
 type DeviceAuthHandler struct {
 	svc service.DeviceAuthService
+	crm client.CRMClient
 }
 
-func NewDeviceAuthHandler(svc service.DeviceAuthService) *DeviceAuthHandler {
-	return &DeviceAuthHandler{svc: svc}
+func NewDeviceAuthHandler(svc service.DeviceAuthService, crm client.CRMClient) *DeviceAuthHandler {
+	return &DeviceAuthHandler{svc: svc, crm: crm}
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -33,6 +35,7 @@ type PairResponse struct {
 	TokenType    string `json:"token_type"` // "Bearer"
 	ExpiresAt    int64  `json:"expires_at"` // unix seconds
 	DeviceID     string `json:"device_id"`
+	DeviceType   string `json:"device_type"`
 	RestaurantID string `json:"restaurant_id"`
 }
 
@@ -67,6 +70,7 @@ func (h *DeviceAuthHandler) Pair(c *fiber.Ctx) error {
 		TokenType:    "Bearer",
 		ExpiresAt:    result.ExpiresAt.Unix(),
 		DeviceID:     result.DeviceID.String(),
+		DeviceType:   result.DeviceType,
 		RestaurantID: result.RestaurantID.String(),
 	})
 }
@@ -77,10 +81,14 @@ func (h *DeviceAuthHandler) Pair(c *fiber.Ctx) error {
 
 // WhoamiResponse describes the current authenticated device.
 type WhoamiResponse struct {
-	DeviceID     string `json:"device_id"`
-	SerialNumber string `json:"serial_number"`
-	RestaurantID string `json:"restaurant_id"`
-	ExpiresAt    int64  `json:"expires_at"`
+	DeviceID       string `json:"device_id"`
+	DeviceType     string `json:"device_type"`
+	SerialNumber   string `json:"serial_number"`
+	RestaurantID   string `json:"restaurant_id"`
+	RestaurantName string `json:"restaurant_name,omitempty"`
+	RestaurantCode string `json:"restaurant_code,omitempty"`
+	Address        string `json:"address,omitempty"`
+	ExpiresAt      int64  `json:"expires_at"`
 }
 
 // Whoami returns the identity of the calling device.
@@ -96,10 +104,18 @@ func (h *DeviceAuthHandler) Whoami(c *fiber.Ctx) error {
 		return response.Unauthorized(c, "unauthorized", "missing device context")
 	}
 
-	return response.OK(c, WhoamiResponse{
+	out := WhoamiResponse{
 		DeviceID:     claims.DeviceID.String(),
+		DeviceType:   claims.DeviceType,
 		SerialNumber: claims.SerialNumber,
 		RestaurantID: claims.RestaurantID.String(),
 		ExpiresAt:    claims.ExpiresAt.Unix(),
-	})
+	}
+	// Restaurant details are for the screen header; best-effort.
+	if r, err := h.crm.GetRestaurant(c.UserContext(), out.RestaurantID); err == nil {
+		out.RestaurantName = r.GetName()
+		out.RestaurantCode = r.GetCode()
+		out.Address = r.GetAddress()
+	}
+	return response.OK(c, out)
 }

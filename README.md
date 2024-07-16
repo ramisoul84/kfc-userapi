@@ -1,8 +1,8 @@
 # kfc-userapi
 
 Customer- and device-facing API for the KFC Russia platform. Serves the
-KFC mobile app and every in-restaurant device (kiosks, POS terminals,
-kitchen displays).
+customer website and every in-restaurant device (kiosks, kitchen
+displays, hall order displays).
 
 ## What it does
 
@@ -18,6 +18,17 @@ kitchen displays).
   minutes.
 - **Device revocation** — CRM can revoke a device; userapi adds it to a
   Redis blocklist so its tokens stop working before their natural expiry.
+- **Device types** — the token carries the device type (`kiosk`, `kds`,
+  `order_display`) and each endpoint accepts only the types that should
+  use it.
+- **Ordering gateway** — kiosks and the website submit carts here.
+  userapi prices every line from the restaurant's effective menu (clients
+  never send prices) and creates the order in `kfc-order`.
+- **Live order screens** — consumes `orders.events` from Kafka and pushes
+  them over SSE to the kitchen display, the hall display (numbers only)
+  and the customer's tracking page.
+- **Restaurant directory** — public city/restaurant lists for the website,
+  read from CRM over gRPC.
 
 ## Architecture
 Kiosk / App ──HTTP──▶┌────────────────────────┐
@@ -90,15 +101,55 @@ the fallback.
 |---|---|---|
 | `GET` | `/health` | Liveness probe |
 | `POST` | `/api/v1/devices/pair` | Exchange a pairing code for a device token |
+| `GET` | `/api/v1/restaurants/:id/menu` | Effective menu for a restaurant |
+| `GET` | `/api/v1/restaurants/:id/menu/stream` | SSE: `menu-updated` |
+| `GET` | `/api/v1/public/regions` | Cities that have restaurants |
+| `GET` | `/api/v1/public/restaurants?region_id=` | Active restaurants |
+| `GET` | `/api/v1/public/restaurants/:id` | One restaurant |
+| `POST` | `/api/v1/public/restaurants/:id/orders` | Web checkout (rate-limited per IP) |
+| `GET` | `/api/v1/public/orders/:id` | Order tracking |
+| `GET` | `/api/v1/public/orders/:id/stream` | SSE: updates for that order only |
 
 ### Device-authenticated
 
 All require `Authorization: Bearer <device-token>`.
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/v1/devices/me` | Return the calling device's claims |
-| `GET` | `/api/v1/restaurants/:id/menu` | Effective menu for a restaurant |
+| Method | Path | Device types | Purpose |
+|---|---|---|---|
+| `GET` | `/api/v1/devices/me` | any | Device identity + restaurant name |
+| `POST` | `/api/v1/kiosk/orders` | `kiosk` | Place an order (paid by card on the terminal) |
+| `GET` | `/api/v1/kitchen/orders` | `kds` | Active orders, oldest first |
+| `POST` | `/api/v1/kitchen/orders/:id/status` | `kds` | `preparing` / `ready` / `completed` / back to `accepted` |
+| `GET` | `/api/v1/display/orders` | `order_display` | Numbers and statuses only |
+| `GET` | `/api/v1/device/orders/stream` | `kds`, `order_display` | SSE: `order` events for the device's restaurant |
+
+### Order checkout body
+
+```json
+{
+  "order_type": "dine_in",
+  "idempotency_key": "6f1c…",          // kiosk: one per checkout, safe to retry
+  "customer_name": "Anna",              // website only
+  "customer_phone": "+7 999 123-45-67", // website only
+  "items": [
+    { "item_id": "…", "variation_id": "…", "quantity": 2 }
+  ]
+}
+```
+
+### Live order stream contract
+
+1. Connect to the stream and wait for the `connected` event.
+2. Fetch the full list over HTTP.
+3. Apply each `order` event (`{type, order}`) as an upsert by `order.id`,
+   ignoring events older than the `updated_at` you already have.
+4. On reconnect, repeat from 1. Nothing is replayed; the refetch covers
+   the gap.
+
+Each userapi instance consumes `orders.events` in its own consumer group
+(`<KAFKA_GROUP_ID>-orders-<hostname>`) starting at the newest offset,
+because SSE clients are spread across instances and all of them need
+every event.
 
 ### gRPC (internal, called by CRM)
 
@@ -114,7 +165,7 @@ All require `Authorization: Bearer <device-token>`.
 | Key | Type | TTL | Purpose |
 |---|---|---|---|
 | `pair:code:{serial}` | string | 15m | bcrypt hash of the pairing code |
-| `pair:meta:{serial}` | JSON | 15m | `{device_id, restaurant_id, expires_at}` |
+| `pair:meta:{serial}` | JSON | 15m | `{device_id, device_type, restaurant_id, expires_at}` |
 | `pair:restaurant:{id}` | set | 15m | Serials belonging to this restaurant's batch |
 | `menu:restaurant:{id}` | JSON | 24h | Cached effective menu |
 | `revoked:device:{id}` | string | 7d | Device revoked; matches token TTL |
@@ -136,8 +187,11 @@ setup would have to be redone.
 | `JWT_DEVICE_SECRET` | — | HMAC secret for device tokens (≥32 chars in prod) |
 | `JWT_DEVICE_TTL` | `168h` | Device token lifetime (7 days) |
 | `JWT_ISSUER` | `kfc-userapi` | `iss` claim |
-| `CRM_GRPC_ADDRESS` | `localhost:9090` | kfc-crm gRPC (for menu miss) |
-| `KAFKA_BROKERS` | — | For consuming `crm.menu.updated` |
+| `CRM_GRPC_ADDRESS` | `localhost:9090` | kfc-crm gRPC (menu, restaurant directory) |
+| `ORDER_GRPC_ADDRESS` | `localhost:9103` | kfc-order gRPC |
+| `KAFKA_BROKERS` | — | For consuming `crm.menu.updated` and `orders.events` |
+| `CORS_ALLOW_ORIGINS` | kiosk, website, KDS, display dev ports | Browser origins |
+| `PUBLIC_ORDER_RATE_LIMIT` | `10` | Web checkouts per IP per minute |
 
 See `.env.example` for the full list.
 

@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	menuv1 "github.com/ramisoul84/kfc-userapi/gen/menu/v1"
 	"github.com/ramisoul84/kfc-userapi/internal/client"
 	"github.com/ramisoul84/kfc-userapi/internal/repository"
 	"github.com/ramisoul84/kfc-userapi/pkg/logger"
@@ -18,6 +19,10 @@ var ErrMenuNotFound = errors.New("menu not found")
 
 type MenuService interface {
 	GetEffectiveMenu(ctx context.Context, restaurantID string) ([]byte, error)
+
+	// GetMenu returns the same cached menu decoded, for server-side
+	// pricing of orders.
+	GetMenu(ctx context.Context, restaurantID string) (*menuv1.GetEffectiveMenuResponse, error)
 }
 
 type menuService struct {
@@ -88,4 +93,19 @@ func (s *menuService) GetEffectiveMenu(
 	}
 
 	return payload, nil
+}
+
+func (s *menuService) GetMenu(
+	ctx context.Context,
+	restaurantID string,
+) (*menuv1.GetEffectiveMenuResponse, error) {
+	payload, err := s.GetEffectiveMenu(ctx, restaurantID)
+	if err != nil {
+		return nil, err
+	}
+	var menu menuv1.GetEffectiveMenuResponse
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(payload, &menu); err != nil {
+		return nil, fmt.Errorf("decode cached menu: %w", err)
+	}
+	return &menu, nil
 }

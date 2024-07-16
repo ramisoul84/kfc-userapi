@@ -16,6 +16,7 @@ type Config struct {
 	JWT    JWTConfig
 	Kafka  KafkaConfig
 	CRM    CRMConfig
+	Order  OrderConfig
 }
 
 // AppConfig holds application-level configuration.
@@ -42,6 +43,11 @@ type HTTPConfig struct {
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
 	ShutdownTimeout time.Duration
+	// CORSAllowOrigins is a comma-separated list of browser origins
+	// (kiosk, website, KDS, hall display) allowed to call the API.
+	CORSAllowOrigins string
+	// PublicOrderRateLimit caps web checkouts per client IP per minute.
+	PublicOrderRateLimit int
 }
 
 type GRPCConfig struct {
@@ -70,12 +76,18 @@ type JWTConfig struct {
 }
 
 type KafkaConfig struct {
-	Brokers   []string
-	GroupID   string
-	MenuTopic string
+	Brokers     []string
+	GroupID     string
+	MenuTopic   string
+	OrdersTopic string
 }
 
 type CRMConfig struct {
+	Address string
+	Timeout time.Duration
+}
+
+type OrderConfig struct {
 	Address string
 	Timeout time.Duration
 }
@@ -102,11 +114,13 @@ func Load() (*Config, error) {
 		},
 
 		HTTP: HTTPConfig{
-			Port:            getEnv("HTTP_PORT", "8001"),
-			ReadTimeout:     getEnvDuration("HTTP_READ_TIMEOUT", 15*time.Second),
-			WriteTimeout:    getEnvDuration("HTTP_WRITE_TIMEOUT", 15*time.Second),
-			IdleTimeout:     getEnvDuration("HTTP_IDLE_TIMEOUT", 60*time.Second),
-			ShutdownTimeout: getEnvDuration("HTTP_SHUTDOWN_TIMEOUT", 10*time.Second),
+			Port:                 getEnv("HTTP_PORT", "8001"),
+			ReadTimeout:          getEnvDuration("HTTP_READ_TIMEOUT", 15*time.Second),
+			WriteTimeout:         getEnvDuration("HTTP_WRITE_TIMEOUT", 15*time.Second),
+			IdleTimeout:          getEnvDuration("HTTP_IDLE_TIMEOUT", 60*time.Second),
+			ShutdownTimeout:      getEnvDuration("HTTP_SHUTDOWN_TIMEOUT", 10*time.Second),
+			CORSAllowOrigins:     getEnv("CORS_ALLOW_ORIGINS", "http://localhost:4300,http://localhost:4400,http://localhost:4500,http://localhost:4600"),
+			PublicOrderRateLimit: getEnvInt("PUBLIC_ORDER_RATE_LIMIT", 10),
 		},
 
 		GRPC: GRPCConfig{
@@ -134,14 +148,20 @@ func Load() (*Config, error) {
 		},
 
 		Kafka: KafkaConfig{
-			Brokers:   getEnvSlice("KAFKA_BROKERS", []string{"localhost:29092"}),
-			GroupID:   getEnv("KAFKA_GROUP_ID", "kfc-userapi"),
-			MenuTopic: getEnv("KAFKA_MENU_TOPIC", "crm.menu.updated"),
+			Brokers:     getEnvSlice("KAFKA_BROKERS", []string{"localhost:29092"}),
+			GroupID:     getEnv("KAFKA_GROUP_ID", "kfc-userapi"),
+			MenuTopic:   getEnv("KAFKA_MENU_TOPIC", "crm.menu.updated"),
+			OrdersTopic: getEnv("KAFKA_ORDERS_TOPIC", "orders.events"),
 		},
 
 		CRM: CRMConfig{
 			Address: getEnv("CRM_GRPC_ADDRESS", "localhost:9090"),
 			Timeout: getEnvDuration("CRM_GRPC_TIMEOUT", 5*time.Second),
+		},
+
+		Order: OrderConfig{
+			Address: getEnv("ORDER_GRPC_ADDRESS", "localhost:9103"),
+			Timeout: getEnvDuration("ORDER_GRPC_TIMEOUT", 5*time.Second),
 		},
 	}
 
@@ -182,6 +202,9 @@ func (c *Config) Validate() error {
 
 	if c.Redis.Host == "" {
 		errs = append(errs, "REDIS_HOST must not be empty")
+	}
+	if len(c.JWT.DeviceSecret) < 32 {
+		errs = append(errs, "JWT_DEVICE_SECRET must be at least 32 characters")
 	}
 
 	if len(errs) > 0 {

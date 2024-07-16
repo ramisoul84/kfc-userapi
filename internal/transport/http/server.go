@@ -7,10 +7,14 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
+	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/ramisoul84/kfc-userapi/internal/config"
+	"github.com/ramisoul84/kfc-userapi/internal/domain"
 	"github.com/ramisoul84/kfc-userapi/internal/repository"
 	"github.com/ramisoul84/kfc-userapi/internal/transport/http/handler"
 	"github.com/ramisoul84/kfc-userapi/internal/transport/http/middleware"
+	"github.com/ramisoul84/kfc-userapi/internal/transport/http/response"
 	"github.com/ramisoul84/kfc-userapi/pkg/jwt"
 	"github.com/ramisoul84/kfc-userapi/pkg/logger"
 )
@@ -23,6 +27,9 @@ type Server struct {
 	deviceAuthHandler *handler.DeviceAuthHandler
 	menuHandler       *handler.MenuHandler
 	menuStreamHandler *handler.MenuStreamHandler
+	orderHandler      *handler.OrderHandler
+	orderStream       *handler.OrderStreamHandler
+	publicHandler     *handler.PublicHandler
 	deviceTokens      *jwt.DeviceTokenManager
 	revocationRepo    repository.RevocationRepository
 }
@@ -34,6 +41,9 @@ func NewServer(
 	deviceAuthHandler *handler.DeviceAuthHandler,
 	menuHandler *handler.MenuHandler,
 	menuStreamHandler *handler.MenuStreamHandler,
+	orderHandler *handler.OrderHandler,
+	orderStream *handler.OrderStreamHandler,
+	publicHandler *handler.PublicHandler,
 	deviceTokens *jwt.DeviceTokenManager,
 	revocationRepo repository.RevocationRepository,
 ) *Server {
@@ -52,6 +62,9 @@ func NewServer(
 		deviceAuthHandler: deviceAuthHandler,
 		menuHandler:       menuHandler,
 		menuStreamHandler: menuStreamHandler,
+		orderHandler:      orderHandler,
+		orderStream:       orderStream,
+		publicHandler:     publicHandler,
 		deviceTokens:      deviceTokens,
 		revocationRepo:    revocationRepo,
 	}
@@ -87,8 +100,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // ═══════════════════════════════════════════════════════════════════
 
 func (s *Server) registerMiddleware() {
+	s.app.Use(recover.New())
 	s.app.Use(cors.New(cors.Config{
-		AllowOrigins:     "http://localhost:4300",
+		AllowOrigins:     s.cfg.HTTP.CORSAllowOrigins,
 		AllowMethods:     "GET,POST,PUT,DELETE,PATCH,OPTIONS",
 		AllowHeaders:     "Origin,Content-Type,Accept,Authorization,X-Request-ID",
 		AllowCredentials: true,
@@ -117,8 +131,46 @@ func (s *Server) registerRoutes() {
 	api.Get("/restaurants/:restaurant_id/menu/stream",
 		s.menuStreamHandler.Stream)
 
+	// ── Public: customer website ──
+	public := api.Group("/public")
+	public.Get("/regions", s.publicHandler.Regions)
+	public.Get("/restaurants", s.publicHandler.Restaurants)
+	public.Get("/restaurants/:id", s.publicHandler.Restaurant)
+	public.Post("/restaurants/:id/orders",
+		limiter.New(limiter.Config{
+			Max:        s.cfg.HTTP.PublicOrderRateLimit,
+			Expiration: time.Minute,
+			LimitReached: func(c *fiber.Ctx) error {
+				return response.ErrorResponse(c, fiber.StatusTooManyRequests,
+					"rate_limited", "too many orders, please wait a minute")
+			},
+		}),
+		s.publicHandler.PlaceOrder,
+	)
+	public.Get("/orders/:id", s.publicHandler.Order)
+	public.Get("/orders/:id/stream", s.orderStream.PublicStream)
+
 	// ── Protected: device-authenticated routes ──
-	_ = api.Group("", middleware.DeviceAuth(s.deviceTokens, s.revocationRepo))
+	device := middleware.DeviceAuth(s.deviceTokens, s.revocationRepo)
+	kiosk := middleware.RequireDeviceType(domain.DeviceTypeKiosk)
+	kds := middleware.RequireDeviceType(domain.DeviceTypeKDS)
+	display := middleware.RequireDeviceType(domain.DeviceTypeOrderDisplay)
+	screens := middleware.RequireDeviceType(domain.DeviceTypeKDS, domain.DeviceTypeOrderDisplay)
+
+	devices.Get("/me", device, s.deviceAuthHandler.Whoami)
+
+	// Kiosk: place an order (payment already taken on the terminal).
+	api.Post("/kiosk/orders", device, kiosk, s.orderHandler.PlaceKioskOrder)
+
+	// Kitchen display: work the queue.
+	api.Get("/kitchen/orders", device, kds, s.orderHandler.KitchenOrders)
+	api.Post("/kitchen/orders/:id/status", device, kds, s.orderHandler.UpdateKitchenStatus)
+
+	// Hall display: numbers only.
+	api.Get("/display/orders", device, display, s.orderHandler.DisplayOrders)
+
+	// Live order events for the restaurant on the device token.
+	api.Get("/device/orders/stream", device, screens, s.orderStream.DeviceStream)
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/ramisoul84/kfc-userapi/internal/client"
 	"github.com/ramisoul84/kfc-userapi/internal/config"
@@ -28,7 +29,9 @@ type App struct {
 	grpcServer    *grpcTransport.Transport
 	redis         *cache.Redis
 	crmClient     client.CRMClient
+	orderClient   client.OrderClient
 	kafkaConsumer *kafka.Consumer
+	orderConsumer *kafka.Consumer
 }
 
 // New creates and wires the application.
@@ -55,6 +58,7 @@ func New(cfg *config.Config) (*App, error) {
 	log.Info("redis connected", "host", cfg.Redis.Host, "port", cfg.Redis.Port)
 
 	sseHub := sse.NewHub(log)
+	orderHub := sse.NewHub(log)
 
 	// Kafka consumer
 	var kafkaConsumer *kafka.Consumer
@@ -78,11 +82,38 @@ func New(cfg *config.Config) (*App, error) {
 		log.Warn("kafka disabled; menu cache will only expire via TTL")
 	}
 
+	// Order events → SSE. Every instance needs every event (its SSE
+	// clients may be watching any restaurant), so the group is unique per
+	// instance and starts at the newest offset: screens refetch on
+	// connect, they never need history.
+	var orderConsumer *kafka.Consumer
+	if len(cfg.Kafka.Brokers) > 0 {
+		host, _ := os.Hostname()
+		groupID := cfg.Kafka.GroupID + "-orders-" + host
+		orderConsumer = kafka.NewConsumer(
+			cfg.Kafka.Brokers,
+			cfg.Kafka.OrdersTopic,
+			groupID,
+			consumer.NewOrderConsumer(orderHub, log).Handle,
+			log,
+			kafka.StartAtLatest(),
+		)
+		log.Info("order event consumer initialized", "topic", cfg.Kafka.OrdersTopic, "group", groupID)
+	} else {
+		log.Warn("kafka disabled; screens will not receive live order updates")
+	}
+
 	crmClient, err := client.NewCRMClient(&cfg.CRM)
 	if err != nil {
 		return nil, fmt.Errorf("crm grpc client: %w", err)
 	}
 	log.Info("crm grpc client initialized", "address", cfg.CRM.Address)
+
+	orderClient, err := client.NewOrderClient(&cfg.Order)
+	if err != nil {
+		return nil, fmt.Errorf("order grpc client: %w", err)
+	}
+	log.Info("order grpc client initialized", "address", cfg.Order.Address)
 
 	// Repos
 	pairingRepo := repository.NewPairingRepository(redisClient)
@@ -100,11 +131,15 @@ func New(cfg *config.Config) (*App, error) {
 	pairingSvc := service.NewPairingService(pairingRepo, log)
 	deviceAuthSvc := service.NewDeviceAuthService(pairingRepo, revocationRepo, deviceTokens, log)
 	menuService := service.NewMenuService(menuCacheRepo, crmClient, log)
+	orderService := service.NewOrderService(orderClient, crmClient, menuService, log)
 
 	// Handlers
-	deviceAuthHandler := handler.NewDeviceAuthHandler(deviceAuthSvc)
+	deviceAuthHandler := handler.NewDeviceAuthHandler(deviceAuthSvc, crmClient)
 	menuStreamHandler := handler.NewMenuStreamHandler(sseHub, log)
 	menuHandler := handler.NewMenuHandler(menuService, log)
+	orderHandler := handler.NewOrderHandler(orderService)
+	orderStreamHandler := handler.NewOrderStreamHandler(orderHub, orderService, log)
+	publicHandler := handler.NewPublicHandler(crmClient, orderService, log)
 
 	// HTTP transport
 	httpServer := httpTransport.NewServer(
@@ -113,6 +148,9 @@ func New(cfg *config.Config) (*App, error) {
 		deviceAuthHandler,
 		menuHandler,
 		menuStreamHandler,
+		orderHandler,
+		orderStreamHandler,
+		publicHandler,
 		deviceTokens,
 		revocationRepo,
 	)
@@ -126,7 +164,10 @@ func New(cfg *config.Config) (*App, error) {
 		httpServer:    httpServer,
 		grpcServer:    grpcSrv,
 		redis:         redisClient,
+		crmClient:     crmClient,
+		orderClient:   orderClient,
 		kafkaConsumer: kafkaConsumer,
+		orderConsumer: orderConsumer,
 	}, nil
 }
 
@@ -151,6 +192,9 @@ func (a *App) Start(ctx context.Context) error {
 	if a.kafkaConsumer != nil {
 		a.kafkaConsumer.Start(ctx)
 	}
+	if a.orderConsumer != nil {
+		a.orderConsumer.Start(ctx)
+	}
 
 	select {
 	case <-ctx.Done():
@@ -173,6 +217,15 @@ func (a *App) Shutdown(ctx context.Context) error {
 			a.logger.Error("kafka consumer stop failed", "error", err)
 			errs = append(errs, fmt.Errorf("kafka consumer: %w", err))
 		}
+	}
+
+	if a.orderConsumer != nil {
+		if err := a.orderConsumer.Stop(); err != nil {
+			errs = append(errs, fmt.Errorf("order consumer: %w", err))
+		}
+	}
+	if a.orderClient != nil {
+		_ = a.orderClient.Close()
 	}
 
 	if err := a.httpServer.Shutdown(ctx); err != nil {

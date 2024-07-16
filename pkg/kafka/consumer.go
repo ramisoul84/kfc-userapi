@@ -28,14 +28,25 @@ type Consumer struct {
 	done   chan struct{}
 }
 
+// Option tweaks the reader configuration.
+type Option func(*kafka.ReaderConfig)
+
+// StartAtLatest makes a brand-new consumer group start from the newest
+// message instead of the oldest. Use it for live fan-out (SSE), where
+// replaying history to screens would be wrong.
+func StartAtLatest() Option {
+	return func(c *kafka.ReaderConfig) { c.StartOffset = kafka.LastOffset }
+}
+
 func NewConsumer(
 	brokers []string,
 	topic string,
 	groupID string,
 	handler MessageHandler,
 	log *logger.Logger,
+	opts ...Option,
 ) *Consumer {
-	r := kafka.NewReader(kafka.ReaderConfig{
+	cfg := kafka.ReaderConfig{
 		Brokers:        brokers,
 		Topic:          topic,
 		GroupID:        groupID,
@@ -46,7 +57,11 @@ func NewConsumer(
 		CommitInterval: 0,                 // commit synchronously
 		ReadBackoffMin: 100 * time.Millisecond,
 		ReadBackoffMax: 1 * time.Second,
-	})
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	r := kafka.NewReader(cfg)
 
 	return &Consumer{
 		reader:  r,
