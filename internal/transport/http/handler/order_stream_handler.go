@@ -3,6 +3,7 @@ package handler
 import (
 	"bufio"
 	"encoding/json"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -61,7 +62,9 @@ func (h *OrderStreamHandler) DeviceStream(c *fiber.Ctx) error {
 // PublicStream handles GET /api/v1/public/orders/:id/stream — the
 // customer's tracking page. Only events for that one order are sent.
 func (h *OrderStreamHandler) PublicStream(c *fiber.Ctx) error {
-	orderID := c.Params("id")
+	// Copy: fasthttp reuses the request buffer after the handler returns,
+	// and the stream writer below outlives it.
+	orderID := strings.Clone(c.Params("id"))
 	order, err := h.orders.Get(c.UserContext(), orderID)
 	if err != nil {
 		return response.FromError(c, err)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -43,7 +44,9 @@ func (h *MenuStreamHandler) Connections() int64 {
 
 // Stream handles GET /api/v1/restaurants/:restaurant_id/menu/stream.
 func (h *MenuStreamHandler) Stream(c *fiber.Ctx) error {
-	restaurantID := c.Params("restaurant_id")
+	// Copy: fasthttp reuses the request buffer once the handler returns,
+	// but the stream writer (and the hub's map key) outlive it.
+	restaurantID := strings.Clone(c.Params("restaurant_id"))
 	if restaurantID == "" {
 		return c.Status(fiber.StatusBadRequest).
 			JSON(fiber.Map{"error": "restaurant_id is required"})
@@ -52,7 +55,7 @@ func (h *MenuStreamHandler) Stream(c *fiber.Ctx) error {
 	// Last-Event-ID lets a reconnecting client resume. We don't replay
 	// missed events, but we forward the value so clients can see it in
 	// the "connected" payload and decide whether they need a full refetch.
-	lastEventID := c.Get("Last-Event-ID")
+	lastEventID := strings.Clone(c.Get("Last-Event-ID"))
 
 	sub := h.hub.Subscribe(restaurantID)
 	h.connections.Add(1)
