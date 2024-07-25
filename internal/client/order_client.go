@@ -17,6 +17,7 @@ type OrderClient interface {
 	CreateOrder(ctx context.Context, req *orderv1.CreateOrderRequest) (*orderv1.Order, error)
 	GetOrder(ctx context.Context, id string) (*orderv1.Order, error)
 	ListActiveOrders(ctx context.Context, restaurantID string, statuses []string) ([]*orderv1.Order, error)
+	ListOrders(ctx context.Context, req *orderv1.ListOrdersRequest) (*orderv1.ListOrdersResponse, error)
 	UpdateOrderStatus(ctx context.Context, req *orderv1.UpdateOrderStatusRequest) (*orderv1.Order, error)
 	Close() error
 }
@@ -65,6 +66,12 @@ func (c *orderClient) ListActiveOrders(ctx context.Context, restaurantID string,
 		return nil, err
 	}
 	return resp.GetOrders(), nil
+}
+
+func (c *orderClient) ListOrders(ctx context.Context, req *orderv1.ListOrdersRequest) (*orderv1.ListOrdersResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	return c.client.ListOrders(ctx, req)
 }
 
 func (c *orderClient) UpdateOrderStatus(ctx context.Context, req *orderv1.UpdateOrderStatusRequest) (*orderv1.Order, error) {

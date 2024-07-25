@@ -43,6 +43,11 @@ type OrderView struct {
 	ReadyAt       *time.Time `json:"ready_at,omitempty"`
 	CompletedAt   *time.Time `json:"completed_at,omitempty"`
 	CancelledAt   *time.Time `json:"cancelled_at,omitempty"`
+
+	MemberID       string  `json:"member_id,omitempty"`
+	Discount       float64 `json:"discount"`
+	PointsRedeemed int     `json:"points_redeemed,omitempty"`
+	LoyaltyHoldID  string  `json:"loyalty_hold_id,omitempty"`
 }
 
 type LineView struct {
@@ -87,6 +92,8 @@ func (o *OrderView) ToPublic() *OrderView {
 	c := *o
 	c.CustomerPhone = ""
 	c.DeviceID = ""
+	c.MemberID = ""
+	c.LoyaltyHoldID = ""
 	return &c
 }
 
@@ -125,6 +132,11 @@ func OrderViewFromProto(o *orderv1.Order) *OrderView {
 		ReadyAt:       optionalMillis(o.GetReadyAt()),
 		CompletedAt:   optionalMillis(o.GetCompletedAt()),
 		CancelledAt:   optionalMillis(o.GetCancelledAt()),
+
+		MemberID:       o.GetMemberId(),
+		Discount:       Rubles(o.GetDiscount()),
+		PointsRedeemed: int(o.GetPointsRedeemed()),
+		LoyaltyHoldID:  o.GetLoyaltyHoldId(),
 	}
 	for _, l := range o.GetLines() {
 		v.Lines = append(v.Lines, LineView{

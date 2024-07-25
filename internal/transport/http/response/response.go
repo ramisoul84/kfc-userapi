@@ -88,6 +88,8 @@ func FromError(c *fiber.Ctx, err error) error {
 			return ErrorResponse(c, fiber.StatusNotFound, "not_found", appErr.Message)
 		case domain.ErrorTypeConflict:
 			return ErrorResponse(c, fiber.StatusConflict, "conflict", appErr.Message)
+		case domain.ErrorTypeTooMany:
+			return ErrorResponse(c, fiber.StatusTooManyRequests, "rate_limited", appErr.Message)
 		case domain.ErrorTypeInternal:
 			// Do not leak appErr.Err to the client.
 			return Internal(c)

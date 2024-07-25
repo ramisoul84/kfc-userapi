@@ -8,15 +8,18 @@ import (
 
 // Config holds all configuration for the application.
 type Config struct {
-	App    AppConfig
-	Logger LoggerConfig
-	HTTP   HTTPConfig
-	GRPC   GRPCConfig
-	Redis  RedisConfig
-	JWT    JWTConfig
-	Kafka  KafkaConfig
-	CRM    CRMConfig
-	Order  OrderConfig
+	App          AppConfig
+	Logger       LoggerConfig
+	HTTP         HTTPConfig
+	GRPC         GRPCConfig
+	Redis        RedisConfig
+	JWT          JWTConfig
+	Kafka        KafkaConfig
+	CRM          CRMConfig
+	Order        OrderConfig
+	Loyalty      LoyaltyConfig
+	Notification NotificationConfig
+	Customer     CustomerAuthConfig
 }
 
 // AppConfig holds application-level configuration.
@@ -92,6 +95,31 @@ type OrderConfig struct {
 	Timeout time.Duration
 }
 
+type LoyaltyConfig struct {
+	Address string
+	Timeout time.Duration
+}
+
+type NotificationConfig struct {
+	Address string
+	Timeout time.Duration
+}
+
+// CustomerAuthConfig controls website sign-in (phone + SMS code) and the
+// tokens issued to customers and to kiosks that identified a customer.
+type CustomerAuthConfig struct {
+	JWTSecret  string
+	AccessTTL  time.Duration // short-lived bearer token
+	RefreshTTL time.Duration // rotating, httpOnly cookie
+	CodeTTL    time.Duration // SMS code lifetime
+	// DevEchoCode returns the SMS code in the API response so the demo
+	// works without an SMS gateway. Never enable in production.
+	DevEchoCode  bool
+	CookieSecure bool
+	// KioskSessionTTL is how long a kiosk may act for an identified customer.
+	KioskSessionTTL time.Duration
+}
+
 // Load reads configuration from environment variables and validates it.
 func Load() (*Config, error) {
 	env := getEnv("APP_ENV", "development")
@@ -163,6 +191,26 @@ func Load() (*Config, error) {
 			Address: getEnv("ORDER_GRPC_ADDRESS", "localhost:9103"),
 			Timeout: getEnvDuration("ORDER_GRPC_TIMEOUT", 5*time.Second),
 		},
+
+		Loyalty: LoyaltyConfig{
+			Address: getEnv("LOYALTY_GRPC_ADDRESS", "localhost:9104"),
+			Timeout: getEnvDuration("LOYALTY_GRPC_TIMEOUT", 5*time.Second),
+		},
+
+		Notification: NotificationConfig{
+			Address: getEnv("NOTIFICATION_GRPC_ADDRESS", "localhost:9101"),
+			Timeout: getEnvDuration("NOTIFICATION_GRPC_TIMEOUT", 5*time.Second),
+		},
+
+		Customer: CustomerAuthConfig{
+			JWTSecret:       getEnv("CUSTOMER_JWT_SECRET", ""),
+			AccessTTL:       getEnvDuration("CUSTOMER_ACCESS_TTL", 15*time.Minute),
+			RefreshTTL:      getEnvDuration("CUSTOMER_REFRESH_TTL", 30*24*time.Hour),
+			CodeTTL:         getEnvDuration("CUSTOMER_CODE_TTL", 5*time.Minute),
+			DevEchoCode:     getEnvBool("CUSTOMER_DEV_ECHO_CODE", env != "production"),
+			CookieSecure:    getEnvBool("CUSTOMER_COOKIE_SECURE", env == "production"),
+			KioskSessionTTL: getEnvDuration("KIOSK_LOYALTY_SESSION_TTL", 10*time.Minute),
+		},
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -205,6 +253,15 @@ func (c *Config) Validate() error {
 	}
 	if len(c.JWT.DeviceSecret) < 32 {
 		errs = append(errs, "JWT_DEVICE_SECRET must be at least 32 characters")
+	}
+	if len(c.Customer.JWTSecret) < 32 {
+		errs = append(errs, "CUSTOMER_JWT_SECRET must be at least 32 characters")
+	}
+	if c.Customer.JWTSecret == c.JWT.DeviceSecret {
+		errs = append(errs, "CUSTOMER_JWT_SECRET must differ from JWT_DEVICE_SECRET")
+	}
+	if c.IsProduction() && c.Customer.DevEchoCode {
+		errs = append(errs, "CUSTOMER_DEV_ECHO_CODE must be false in production")
 	}
 
 	if len(errs) > 0 {

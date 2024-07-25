@@ -30,6 +30,8 @@ type Server struct {
 	orderHandler      *handler.OrderHandler
 	orderStream       *handler.OrderStreamHandler
 	publicHandler     *handler.PublicHandler
+	customerHandler   *handler.CustomerHandler
+	customerTokens    *jwt.CustomerTokenManager
 	deviceTokens      *jwt.DeviceTokenManager
 	revocationRepo    repository.RevocationRepository
 }
@@ -44,6 +46,8 @@ func NewServer(
 	orderHandler *handler.OrderHandler,
 	orderStream *handler.OrderStreamHandler,
 	publicHandler *handler.PublicHandler,
+	customerHandler *handler.CustomerHandler,
+	customerTokens *jwt.CustomerTokenManager,
 	deviceTokens *jwt.DeviceTokenManager,
 	revocationRepo repository.RevocationRepository,
 ) *Server {
@@ -65,6 +69,8 @@ func NewServer(
 		orderHandler:      orderHandler,
 		orderStream:       orderStream,
 		publicHandler:     publicHandler,
+		customerHandler:   customerHandler,
+		customerTokens:    customerTokens,
 		deviceTokens:      deviceTokens,
 		revocationRepo:    revocationRepo,
 	}
@@ -136,19 +142,37 @@ func (s *Server) registerRoutes() {
 	public.Get("/regions", s.publicHandler.Regions)
 	public.Get("/restaurants", s.publicHandler.Restaurants)
 	public.Get("/restaurants/:id", s.publicHandler.Restaurant)
-	public.Post("/restaurants/:id/orders",
+	public.Get("/orders/:id", s.publicHandler.Order)
+	public.Get("/loyalty/program", s.customerHandler.Program)
+	public.Get("/orders/:id/stream", s.orderStream.PublicStream)
+
+	// ── Customers (website): phone + SMS code sign-in ──
+	auth := api.Group("/customer/auth")
+	auth.Post("/code", s.customerHandler.RequestCode)
+	auth.Post("/verify", s.customerHandler.VerifyCode)
+	auth.Post("/refresh", s.customerHandler.Refresh)
+	auth.Post("/logout", s.customerHandler.Logout)
+
+	customer := api.Group("/customer", middleware.CustomerAuth(s.customerTokens))
+	customer.Get("/me", s.customerHandler.Me)
+	customer.Patch("/me", s.customerHandler.UpdateMe)
+	customer.Get("/me/points", s.customerHandler.Points)
+	customer.Post("/me/code", s.customerHandler.Code)
+	customer.Get("/me/orders", s.customerHandler.Orders)
+	customer.Post("/restaurants/:id/orders",
 		limiter.New(limiter.Config{
 			Max:        s.cfg.HTTP.PublicOrderRateLimit,
 			Expiration: time.Minute,
+			KeyGenerator: func(c *fiber.Ctx) string {
+				return middleware.CustomerClaims(c).MemberID.String()
+			},
 			LimitReached: func(c *fiber.Ctx) error {
 				return response.ErrorResponse(c, fiber.StatusTooManyRequests,
 					"rate_limited", "too many orders, please wait a minute")
 			},
 		}),
-		s.publicHandler.PlaceOrder,
+		s.customerHandler.PlaceOrder,
 	)
-	public.Get("/orders/:id", s.publicHandler.Order)
-	public.Get("/orders/:id/stream", s.orderStream.PublicStream)
 
 	// ── Protected: device-authenticated routes ──
 	device := middleware.DeviceAuth(s.deviceTokens, s.revocationRepo)
@@ -161,6 +185,7 @@ func (s *Server) registerRoutes() {
 
 	// Kiosk: place an order (payment already taken on the terminal).
 	api.Post("/kiosk/orders", device, kiosk, s.orderHandler.PlaceKioskOrder)
+	api.Post("/kiosk/loyalty/identify", device, kiosk, s.customerHandler.IdentifyAtKiosk)
 
 	// Kitchen display: work the queue.
 	api.Get("/kitchen/orders", device, kds, s.orderHandler.KitchenOrders)

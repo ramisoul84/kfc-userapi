@@ -5,17 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/google/uuid"
+
+	loyaltyv1 "github.com/ramisoul84/kfc-userapi/gen/loyalty/v1"
 	menuv1 "github.com/ramisoul84/kfc-userapi/gen/menu/v1"
 	orderv1 "github.com/ramisoul84/kfc-userapi/gen/order/v1"
 	"github.com/ramisoul84/kfc-userapi/internal/client"
 	"github.com/ramisoul84/kfc-userapi/internal/domain"
+	"github.com/ramisoul84/kfc-userapi/pkg/jwt"
 	"github.com/ramisoul84/kfc-userapi/pkg/logger"
 )
 
@@ -39,6 +42,11 @@ type PlaceOrderRequest struct {
 	Note           string     `json:"note,omitempty"`
 	IdempotencyKey string     `json:"idempotency_key,omitempty"`
 	Items          []CartItem `json:"items"`
+
+	// Loyalty. RedeemPoints needs a signed-in customer (website) or a
+	// kiosk loyalty session token (kiosk).
+	RedeemPoints   int    `json:"redeem_points,omitempty"`
+	LoyaltySession string `json:"loyalty_session,omitempty"`
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -48,7 +56,7 @@ type PlaceOrderRequest struct {
 // OrderService is the customer- and device-facing side of ordering.
 type OrderService interface {
 	PlaceKioskOrder(ctx context.Context, device *domain.DeviceTokenClaims, req *PlaceOrderRequest) (*domain.OrderView, error)
-	PlaceWebOrder(ctx context.Context, restaurantID string, req *PlaceOrderRequest) (*domain.OrderView, error)
+	PlaceWebOrder(ctx context.Context, memberID uuid.UUID, restaurantID string, req *PlaceOrderRequest) (*domain.OrderView, error)
 
 	// ListActive returns orders in flight at a restaurant (KDS, display).
 	ListActive(ctx context.Context, restaurantID string) ([]*domain.OrderView, error)
@@ -62,19 +70,23 @@ type OrderService interface {
 }
 
 type orderService struct {
-	orders client.OrderClient
-	crm    client.CRMClient
-	menu   MenuService
-	logger *logger.Logger
+	orders  client.OrderClient
+	crm     client.CRMClient
+	menu    MenuService
+	loyalty *client.LoyaltyClient
+	tokens  *jwt.CustomerTokenManager
+	logger  *logger.Logger
 }
 
 func NewOrderService(
 	orders client.OrderClient,
 	crm client.CRMClient,
 	menu MenuService,
+	loyalty *client.LoyaltyClient,
+	tokens *jwt.CustomerTokenManager,
 	log *logger.Logger,
 ) OrderService {
-	return &orderService{orders: orders, crm: crm, menu: menu, logger: log}
+	return &orderService{orders: orders, crm: crm, menu: menu, loyalty: loyalty, tokens: tokens, logger: log}
 }
 
 // Kitchen screens may move orders along these statuses only. Cancelling
@@ -86,10 +98,6 @@ var kitchenStatuses = map[string]bool{
 	domain.OrderStatusCompleted: true,
 }
 
-// Loose international phone check: digits with optional +, spaces,
-// dashes and brackets; 10–15 digits overall.
-var phonePattern = regexp.MustCompile(`^\+?[0-9 ()\-]{10,20}$`)
-
 // ═══════════════════════════════════════════════════════════════════
 // PLACE
 // ═══════════════════════════════════════════════════════════════════
@@ -99,6 +107,20 @@ func (s *orderService) PlaceKioskOrder(
 	device *domain.DeviceTokenClaims,
 	req *PlaceOrderRequest,
 ) (*domain.OrderView, error) {
+	// A customer who scanned their code at this kiosk. The session is
+	// bound to the device, so a token can't be carried to another kiosk.
+	var memberID *uuid.UUID
+	if req.LoyaltySession != "" {
+		claims, err := s.tokens.VerifyKioskSession(req.LoyaltySession)
+		if err != nil {
+			return nil, domain.NewValidationError("your loyalty session has expired, please scan your code again")
+		}
+		if claims.DeviceID != device.DeviceID {
+			return nil, domain.NewValidationError("loyalty session belongs to another kiosk")
+		}
+		memberID = &claims.MemberID
+	}
+
 	// Kiosks take card payment on the built-in terminal before submitting,
 	// so the order reaches the kitchen already paid.
 	return s.place(ctx, device.RestaurantID.String(), &orderv1.CreateOrderRequest{
@@ -106,20 +128,27 @@ func (s *orderService) PlaceKioskOrder(
 		PaymentMethod: "card",
 		PaymentStatus: "paid",
 		DeviceId:      device.DeviceID.String(),
-	}, req)
+	}, req, memberID)
 }
 
 func (s *orderService) PlaceWebOrder(
 	ctx context.Context,
+	memberID uuid.UUID,
 	restaurantID string,
 	req *PlaceOrderRequest,
 ) (*domain.OrderView, error) {
+	// The signed-in customer's verified phone is used for the order; the
+	// name defaults to their profile name.
+	member, err := s.loyalty.GetMember(ctx, &loyaltyv1.GetMemberRequest{Id: memberID.String()})
+	if err != nil {
+		return nil, mapOrderError(err)
+	}
 	name := strings.TrimSpace(req.CustomerName)
+	if name == "" {
+		name = member.GetFirstName()
+	}
 	if n := utf8.RuneCountInString(name); n < 2 || n > 60 {
 		return nil, domain.NewValidationError("please enter your name (2–60 characters)")
-	}
-	if !phonePattern.MatchString(strings.TrimSpace(req.CustomerPhone)) {
-		return nil, domain.NewValidationError("please enter a valid phone number")
 	}
 
 	// The restaurant must exist and be open for orders.
@@ -140,16 +169,23 @@ func (s *orderService) PlaceWebOrder(
 		PaymentMethod: "online",
 		PaymentStatus: "paid",
 		CustomerName:  name,
-		CustomerPhone: strings.TrimSpace(req.CustomerPhone),
-	}, req)
+		CustomerPhone: member.GetPhone(),
+	}, req, &memberID)
 }
 
-// place prices the cart against the effective menu and submits it.
+// place prices the cart against the effective menu, applies loyalty
+// points if requested, and submits it.
+//
+// Points use a two-phase hold: reserve before creating the order, commit
+// after. A definite failure releases the hold; an ambiguous one (timeout)
+// leaves it, because the order may exist: kfc-loyalty commits the hold
+// from the order.created event, or the hold simply expires.
 func (s *orderService) place(
 	ctx context.Context,
 	restaurantID string,
 	base *orderv1.CreateOrderRequest,
 	req *PlaceOrderRequest,
+	memberID *uuid.UUID,
 ) (*domain.OrderView, error) {
 	if req.OrderType != "dine_in" && req.OrderType != "takeaway" {
 		return nil, domain.NewValidationError("order_type must be dine_in or takeaway")
@@ -180,10 +216,37 @@ func (s *orderService) place(
 	base.Currency = menu.GetCurrency()
 	base.IdempotencyKey = req.IdempotencyKey
 	base.Lines = lines
+	if memberID != nil {
+		base.MemberId = memberID.String()
+	}
+
+	var hold *loyaltyv1.Hold
+	if req.RedeemPoints != 0 {
+		if hold, err = s.reservePoints(ctx, base, req, memberID); err != nil {
+			return nil, err
+		}
+	}
 
 	created, err := s.orders.CreateOrder(ctx, base)
 	if err != nil {
+		if hold != nil && !isAmbiguous(err) {
+			if _, rerr := s.loyalty.ReleaseHold(context.WithoutCancel(ctx), &loyaltyv1.ReleaseHoldRequest{HoldId: hold.GetId()}); rerr != nil {
+				s.logger.Warn("release hold failed; it will expire", "hold_id", hold.GetId(), "error", rerr)
+			}
+		}
 		return nil, mapOrderError(err)
+	}
+
+	if hold != nil {
+		if _, err := s.loyalty.CommitHold(context.WithoutCancel(ctx), &loyaltyv1.CommitHoldRequest{
+			HoldId:       hold.GetId(),
+			OrderId:      created.GetId(),
+			OrderNumber:  created.GetNumber(),
+			RestaurantId: restaurantID,
+		}); err != nil {
+			// Not fatal: kfc-loyalty commits it from the order.created event.
+			s.logger.Warn("commit hold failed; event will reconcile", "hold_id", hold.GetId(), "error", err)
+		}
 	}
 
 	s.logger.Info("order placed",
@@ -194,6 +257,61 @@ func (s *orderService) place(
 		"total", created.GetTotal(),
 	)
 	return domain.OrderViewFromProto(created), nil
+}
+
+// reservePoints holds the requested points and puts the discount on the
+// order request.
+func (s *orderService) reservePoints(
+	ctx context.Context,
+	base *orderv1.CreateOrderRequest,
+	req *PlaceOrderRequest,
+	memberID *uuid.UUID,
+) (*loyaltyv1.Hold, error) {
+	if memberID == nil {
+		return nil, domain.NewValidationError("sign in or scan your loyalty code to use points")
+	}
+	if req.RedeemPoints < 0 {
+		return nil, domain.NewValidationError("points must be positive")
+	}
+	if base.IdempotencyKey == "" {
+		base.IdempotencyKey = uuid.NewString()
+	}
+
+	var subtotal int64
+	for _, l := range base.Lines {
+		subtotal += l.GetUnitPrice() * int64(l.GetQuantity())
+	}
+
+	program, err := s.loyalty.GetProgram(ctx, &loyaltyv1.GetProgramRequest{})
+	if err != nil {
+		return nil, mapOrderError(err)
+	}
+
+	// The checkout's idempotency key doubles as the hold reference, so a
+	// retried checkout reuses its hold instead of reserving twice.
+	hold, err := s.loyalty.ReservePoints(ctx, &loyaltyv1.ReservePointsRequest{
+		MemberId:      memberID.String(),
+		Points:        int32(req.RedeemPoints),
+		Reference:     "order:" + base.IdempotencyKey,
+		OrderSubtotal: subtotal,
+	})
+	if err != nil {
+		return nil, mapOrderError(err)
+	}
+
+	base.LoyaltyHoldId = hold.GetId()
+	base.PointsRedeemed = int32(req.RedeemPoints)
+	base.Discount = int64(req.RedeemPoints) * program.GetPointValueKopecks()
+	return hold, nil
+}
+
+// isAmbiguous reports whether a failed call may still have succeeded.
+func isAmbiguous(err error) bool {
+	switch status.Code(err) {
+	case codes.DeadlineExceeded, codes.Unavailable, codes.Canceled, codes.Unknown:
+		return true
+	}
+	return false
 }
 
 // priceCart resolves every cart line against the menu: the item must

@@ -30,6 +30,8 @@ type App struct {
 	redis         *cache.Redis
 	crmClient     client.CRMClient
 	orderClient   client.OrderClient
+	loyaltyClient *client.LoyaltyClient
+	notifyClient  *client.NotificationClient
 	kafkaConsumer *kafka.Consumer
 	orderConsumer *kafka.Consumer
 }
@@ -115,6 +117,21 @@ func New(cfg *config.Config) (*App, error) {
 	}
 	log.Info("order grpc client initialized", "address", cfg.Order.Address)
 
+	loyaltyClient, err := client.NewLoyaltyClient(&cfg.Loyalty)
+	if err != nil {
+		return nil, fmt.Errorf("loyalty grpc client: %w", err)
+	}
+	log.Info("loyalty grpc client initialized", "address", cfg.Loyalty.Address)
+
+	notifyClient, err := client.NewNotificationClient(&cfg.Notification)
+	if err != nil {
+		return nil, fmt.Errorf("notification grpc client: %w", err)
+	}
+	log.Info("notification grpc client initialized", "address", cfg.Notification.Address)
+	if cfg.Customer.DevEchoCode {
+		log.Warn("CUSTOMER_DEV_ECHO_CODE is on: sign-in codes are returned by the API (demo only)")
+	}
+
 	// Repos
 	pairingRepo := repository.NewPairingRepository(redisClient)
 	revocationRepo := repository.NewRevocationRepository(redisClient)
@@ -127,11 +144,21 @@ func New(cfg *config.Config) (*App, error) {
 		cfg.JWT.DeviceTTL,
 	)
 
+	customerTokens := jwt.NewCustomerTokenManager(
+		cfg.Customer.JWTSecret,
+		cfg.JWT.Issuer,
+		cfg.Customer.AccessTTL,
+		cfg.Customer.KioskSessionTTL,
+	)
+	customerAuthRepo := repository.NewCustomerAuthRepository(redisClient)
+
 	// Services
 	pairingSvc := service.NewPairingService(pairingRepo, log)
 	deviceAuthSvc := service.NewDeviceAuthService(pairingRepo, revocationRepo, deviceTokens, log)
 	menuService := service.NewMenuService(menuCacheRepo, crmClient, log)
-	orderService := service.NewOrderService(orderClient, crmClient, menuService, log)
+	orderService := service.NewOrderService(orderClient, crmClient, menuService, loyaltyClient, customerTokens, log)
+	customerService := service.NewCustomerService(
+		customerAuthRepo, loyaltyClient, notifyClient, orderClient, customerTokens, cfg.Customer, log)
 
 	// Handlers
 	deviceAuthHandler := handler.NewDeviceAuthHandler(deviceAuthSvc, crmClient)
@@ -140,6 +167,7 @@ func New(cfg *config.Config) (*App, error) {
 	orderHandler := handler.NewOrderHandler(orderService)
 	orderStreamHandler := handler.NewOrderStreamHandler(orderHub, orderService, log)
 	publicHandler := handler.NewPublicHandler(crmClient, orderService, log)
+	customerHandler := handler.NewCustomerHandler(customerService, orderService, cfg.Customer)
 
 	// HTTP transport
 	httpServer := httpTransport.NewServer(
@@ -151,6 +179,8 @@ func New(cfg *config.Config) (*App, error) {
 		orderHandler,
 		orderStreamHandler,
 		publicHandler,
+		customerHandler,
+		customerTokens,
 		deviceTokens,
 		revocationRepo,
 	)
@@ -166,6 +196,8 @@ func New(cfg *config.Config) (*App, error) {
 		redis:         redisClient,
 		crmClient:     crmClient,
 		orderClient:   orderClient,
+		loyaltyClient: loyaltyClient,
+		notifyClient:  notifyClient,
 		kafkaConsumer: kafkaConsumer,
 		orderConsumer: orderConsumer,
 	}, nil
@@ -227,6 +259,8 @@ func (a *App) Shutdown(ctx context.Context) error {
 	if a.orderClient != nil {
 		_ = a.orderClient.Close()
 	}
+	_ = a.loyaltyClient.Close()
+	_ = a.notifyClient.Close()
 
 	if err := a.httpServer.Shutdown(ctx); err != nil {
 		a.logger.Error("http shutdown failed", "error", err)

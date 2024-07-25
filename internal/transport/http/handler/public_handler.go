@@ -90,20 +90,6 @@ func (h *PublicHandler) Restaurant(c *fiber.Ctx) error {
 	})
 }
 
-// PlaceOrder handles POST /api/v1/public/restaurants/:id/orders.
-func (h *PublicHandler) PlaceOrder(c *fiber.Ctx) error {
-	var req service.PlaceOrderRequest
-	if err := c.BodyParser(&req); err != nil {
-		return response.BadRequest(c, "invalid request body")
-	}
-
-	order, err := h.orders.PlaceWebOrder(c.UserContext(), c.Params("id"), &req)
-	if err != nil {
-		return response.FromError(c, err)
-	}
-	return response.Created(c, order.ToPublic())
-}
-
 // Order handles GET /api/v1/public/orders/:id. The order id is a random
 // UUID handed only to the customer who placed it, so it doubles as the
 // tracking credential.

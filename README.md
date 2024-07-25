@@ -29,6 +29,13 @@ displays, hall order displays).
   and the customer's tracking page.
 - **Restaurant directory** — public city/restaurant lists for the website,
   read from CRM over gRPC.
+- **Customer sign-in** — phone number + one-time SMS code (sent through
+  kfc-notification). Issues a 15-minute access token and a rotating
+  30-day refresh token in an httpOnly cookie. The customer *is* a
+  loyalty member in kfc-loyalty.
+- **Loyalty at checkout** — website customers and kiosk customers who
+  scanned their code can pay part of an order with points (two-phase
+  hold in kfc-loyalty, see below).
 
 ## Architecture
 Kiosk / App ──HTTP──▶┌────────────────────────┐
@@ -106,9 +113,44 @@ the fallback.
 | `GET` | `/api/v1/public/regions` | Cities that have restaurants |
 | `GET` | `/api/v1/public/restaurants?region_id=` | Active restaurants |
 | `GET` | `/api/v1/public/restaurants/:id` | One restaurant |
-| `POST` | `/api/v1/public/restaurants/:id/orders` | Web checkout (rate-limited per IP) |
 | `GET` | `/api/v1/public/orders/:id` | Order tracking |
 | `GET` | `/api/v1/public/orders/:id/stream` | SSE: updates for that order only |
+
+### Customers (website)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/customer/auth/code` | Text a 6-digit sign-in code `{phone}` |
+| `POST` | `/api/v1/customer/auth/verify` | `{phone, code, first_name?}` → access token + refresh cookie |
+| `POST` | `/api/v1/customer/auth/refresh` | Rotate the refresh cookie, new access token |
+| `POST` | `/api/v1/customer/auth/logout` | Revoke the refresh token |
+| `GET`/`PATCH` | `/api/v1/customer/me` | Profile and points balance |
+| `GET` | `/api/v1/customer/me/points` | Points history |
+| `POST` | `/api/v1/customer/me/code` | Fresh kiosk code `{code, qr_payload, expires_at}` |
+| `GET` | `/api/v1/customer/me/orders` | Order history |
+| `POST` | `/api/v1/customer/restaurants/:id/orders` | Checkout (signed in; optional `redeem_points`) |
+| `GET` | `/api/v1/public/loyalty/program` | Earn/redeem rules |
+
+Sign-in protections: one code per minute and 5 per hour per phone, 20 per
+hour per IP; codes HMAC-hashed and bound to the phone, 5 attempts, 5 min
+lifetime. Refresh tokens are stored hashed and work once.
+
+### Loyalty at the kiosk
+
+1. The customer opens *My code* on the website: a QR code
+   (`KFC-LOYALTY:<8 digits>`) plus the digits, valid 5 min, single use.
+2. The kiosk sends it to `POST /api/v1/kiosk/loyalty/identify` (from the
+   camera, a hardware scanner or the keypad; max 30 lookups / 10 min per
+   kiosk) and receives a 10-minute `session_token` bound to that kiosk.
+3. The kiosk includes `loyalty_session` and `redeem_points` in
+   `POST /kiosk/orders`. Points are earned on the order either way.
+
+### Points at checkout
+
+`redeem_points` → `ReservePoints` (hold, capped by the program) → create
+the order with the discount and hold id → `CommitHold`. A definite
+failure releases the hold; an ambiguous one (timeout) leaves it for the
+`order.created` event to commit, or for it to expire.
 
 ### Device-authenticated
 
@@ -118,6 +160,7 @@ All require `Authorization: Bearer <device-token>`.
 |---|---|---|---|
 | `GET` | `/api/v1/devices/me` | any | Device identity + restaurant name |
 | `POST` | `/api/v1/kiosk/orders` | `kiosk` | Place an order (paid by card on the terminal) |
+| `POST` | `/api/v1/kiosk/loyalty/identify` | `kiosk` | Exchange a customer's code for a loyalty session |
 | `GET` | `/api/v1/kitchen/orders` | `kds` | Active orders, oldest first |
 | `POST` | `/api/v1/kitchen/orders/:id/status` | `kds` | `preparing` / `ready` / `completed` / back to `accepted` |
 | `GET` | `/api/v1/display/orders` | `order_display` | Numbers and statuses only |
