@@ -31,6 +31,9 @@ message GetEffectiveMenuResponse {
   string currency      = 3; // "RUB"
   repeated Category categories = 4;
   uint32 schema_version = 5; // bump on incompatible changes
+  // When this menu changes by itself (a promotion starts or ends), unix
+  // seconds; 0 = nothing scheduled. Caches must expire it by then.
+  int64  valid_until = 6;
 }
 
 // ─────────────────────────────────────────────────────────────────

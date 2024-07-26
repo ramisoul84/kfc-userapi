@@ -32,8 +32,7 @@ type App struct {
 	orderClient   client.OrderClient
 	loyaltyClient *client.LoyaltyClient
 	notifyClient  *client.NotificationClient
-	kafkaConsumer *kafka.Consumer
-	orderConsumer *kafka.Consumer
+	consumers     []*kafka.Consumer
 }
 
 // New creates and wires the application.
@@ -62,21 +61,22 @@ func New(cfg *config.Config) (*App, error) {
 	sseHub := sse.NewHub(log)
 	orderHub := sse.NewHub(log)
 
-	// Kafka consumer
-	var kafkaConsumer *kafka.Consumer
+	menuCacheRepo := repository.NewMenuCacheRepository(redisClient)
+	host, _ := os.Hostname()
+
+	// Menu events: a durable group-wide consumer keeps the shared cache
+	// correct; a per-instance consumer drives this replica's live screens
+	// (see consumer.MenuConsumer).
+	var consumers []*kafka.Consumer
 	if len(cfg.Kafka.Brokers) > 0 {
-		menuConsumer := consumer.NewMenuConsumer(redisClient, sseHub, log)
-
-		kafkaConsumer = kafka.NewConsumer(
-			cfg.Kafka.Brokers,
-			cfg.Kafka.MenuTopic,
-			cfg.Kafka.GroupID,
-			menuConsumer.Handle,
-			log,
+		menuConsumer := consumer.NewMenuConsumer(menuCacheRepo, sseHub, log)
+		consumers = append(consumers,
+			kafka.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.MenuTopic, cfg.Kafka.GroupID,
+				menuConsumer.Invalidate, log, kafka.RetryHandler(5)),
+			kafka.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.MenuTopic, cfg.Kafka.GroupID+"-menu-"+host,
+				menuConsumer.Broadcast, log, kafka.StartAtLatest()),
 		)
-
-		log.Info("kafka consumer initialized",
-			"brokers", cfg.Kafka.Brokers,
+		log.Info("menu event consumers initialized",
 			"topic", cfg.Kafka.MenuTopic,
 			"group", cfg.Kafka.GroupID,
 		)
@@ -88,18 +88,16 @@ func New(cfg *config.Config) (*App, error) {
 	// clients may be watching any restaurant), so the group is unique per
 	// instance and starts at the newest offset: screens refetch on
 	// connect, they never need history.
-	var orderConsumer *kafka.Consumer
 	if len(cfg.Kafka.Brokers) > 0 {
-		host, _ := os.Hostname()
 		groupID := cfg.Kafka.GroupID + "-orders-" + host
-		orderConsumer = kafka.NewConsumer(
+		consumers = append(consumers, kafka.NewConsumer(
 			cfg.Kafka.Brokers,
 			cfg.Kafka.OrdersTopic,
 			groupID,
 			consumer.NewOrderConsumer(orderHub, log).Handle,
 			log,
 			kafka.StartAtLatest(),
-		)
+		))
 		log.Info("order event consumer initialized", "topic", cfg.Kafka.OrdersTopic, "group", groupID)
 	} else {
 		log.Warn("kafka disabled; screens will not receive live order updates")
@@ -135,7 +133,6 @@ func New(cfg *config.Config) (*App, error) {
 	// Repos
 	pairingRepo := repository.NewPairingRepository(redisClient)
 	revocationRepo := repository.NewRevocationRepository(redisClient)
-	menuCacheRepo := repository.NewMenuCacheRepository(redisClient)
 
 	// Token manager
 	deviceTokens := jwt.NewDeviceTokenManager(
@@ -198,8 +195,7 @@ func New(cfg *config.Config) (*App, error) {
 		orderClient:   orderClient,
 		loyaltyClient: loyaltyClient,
 		notifyClient:  notifyClient,
-		kafkaConsumer: kafkaConsumer,
-		orderConsumer: orderConsumer,
+		consumers:     consumers,
 	}, nil
 }
 
@@ -221,11 +217,8 @@ func (a *App) Start(ctx context.Context) error {
 		}
 	}()
 
-	if a.kafkaConsumer != nil {
-		a.kafkaConsumer.Start(ctx)
-	}
-	if a.orderConsumer != nil {
-		a.orderConsumer.Start(ctx)
+	for _, c := range a.consumers {
+		c.Start(ctx)
 	}
 
 	select {
@@ -244,16 +237,10 @@ func (a *App) Shutdown(ctx context.Context) error {
 
 	var errs []error
 
-	if a.kafkaConsumer != nil {
-		if err := a.kafkaConsumer.Stop(); err != nil {
+	for _, c := range a.consumers {
+		if err := c.Stop(); err != nil {
 			a.logger.Error("kafka consumer stop failed", "error", err)
 			errs = append(errs, fmt.Errorf("kafka consumer: %w", err))
-		}
-	}
-
-	if a.orderConsumer != nil {
-		if err := a.orderConsumer.Stop(); err != nil {
-			errs = append(errs, fmt.Errorf("order consumer: %w", err))
 		}
 	}
 	if a.orderClient != nil {

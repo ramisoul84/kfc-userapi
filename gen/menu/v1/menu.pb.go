@@ -73,6 +73,9 @@ type GetEffectiveMenuResponse struct {
 	Currency      string                 `protobuf:"bytes,3,opt,name=currency,proto3" json:"currency,omitempty"`                             // "RUB"
 	Categories    []*Category            `protobuf:"bytes,4,rep,name=categories,proto3" json:"categories,omitempty"`
 	SchemaVersion uint32                 `protobuf:"varint,5,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"` // bump on incompatible changes
+	// When this menu changes by itself (a promotion starts or ends), unix
+	// seconds; 0 = nothing scheduled. Caches must expire it by then.
+	ValidUntil    int64 `protobuf:"varint,6,opt,name=valid_until,json=validUntil,proto3" json:"valid_until,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -138,6 +141,13 @@ func (x *GetEffectiveMenuResponse) GetCategories() []*Category {
 func (x *GetEffectiveMenuResponse) GetSchemaVersion() uint32 {
 	if x != nil {
 		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *GetEffectiveMenuResponse) GetValidUntil() int64 {
+	if x != nil {
+		return x.ValidUntil
 	}
 	return 0
 }
@@ -540,7 +550,7 @@ const file_proto_menu_v1_menu_proto_rawDesc = "" +
 	"\n" +
 	"\x18proto/menu/v1/menu.proto\x12\vkfc.menu.v1\">\n" +
 	"\x17GetEffectiveMenuRequest\x12#\n" +
-	"\rrestaurant_id\x18\x01 \x01(\tR\frestaurantId\"\xdc\x01\n" +
+	"\rrestaurant_id\x18\x01 \x01(\tR\frestaurantId\"\xfd\x01\n" +
 	"\x18GetEffectiveMenuResponse\x12#\n" +
 	"\rrestaurant_id\x18\x01 \x01(\tR\frestaurantId\x12!\n" +
 	"\fgenerated_at\x18\x02 \x01(\x03R\vgeneratedAt\x12\x1a\n" +
@@ -548,7 +558,9 @@ const file_proto_menu_v1_menu_proto_rawDesc = "" +
 	"\n" +
 	"categories\x18\x04 \x03(\v2\x15.kfc.menu.v1.CategoryR\n" +
 	"categories\x12%\n" +
-	"\x0eschema_version\x18\x05 \x01(\rR\rschemaVersion\"\xa7\x01\n" +
+	"\x0eschema_version\x18\x05 \x01(\rR\rschemaVersion\x12\x1f\n" +
+	"\vvalid_until\x18\x06 \x01(\x03R\n" +
+	"validUntil\"\xa7\x01\n" +
 	"\bCategory\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -66,7 +67,8 @@ func (s *menuService) GetEffectiveMenu(
 
 	s.logger.Debug("menu cache miss", "restaurant_id", restaurantID)
 
-	// 2. Fetch from CRM over gRPC.
+	// 2. Fetch from CRM over gRPC. fetchedAt feeds the stale-write guard.
+	fetchedAt := time.Now()
 	resp, err := s.crm.GetEffectiveMenu(ctx, restaurantID)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
@@ -83,13 +85,22 @@ func (s *menuService) GetEffectiveMenu(
 		return nil, fmt.Errorf("marshal menu to json: %w", err)
 	}
 
-	// 4. Cache the JSON so future hits skip the conversion.
-	if err := s.cache.Set(ctx, restaurantID, payload); err != nil {
+	// 4. Cache the JSON so future hits skip the conversion. The menu
+	//    must not outlive its next scheduled change (a promotion start
+	//    or end), which no event announces.
+	ttl := repository.MenuCacheMaxTTL
+	if until := resp.GetValidUntil(); until > 0 {
+		ttl = time.Until(time.Unix(until, 0))
+	}
+	stored, err := s.cache.Set(ctx, restaurantID, payload, ttl, fetchedAt)
+	if err != nil {
 		s.logger.Warn("menu cache write failed",
 			"restaurant_id", restaurantID,
 			"error", err,
 		)
 		// Not fatal — we still return the data.
+	} else if !stored {
+		s.logger.Debug("menu not cached (changed during fetch or expiring)", "restaurant_id", restaurantID)
 	}
 
 	return payload, nil

@@ -14,5 +14,5 @@ USER app
 COPY --from=build /out/userapi /usr/local/bin/userapi
 ENV APP_ENV=staging
 EXPOSE 8001 9102
-HEALTHCHECK --interval=10s --timeout=3s --retries=5 CMD wget -qO- http://localhost:8001/health || exit 1
+HEALTHCHECK --interval=10s --timeout=3s --retries=5 CMD wget -qO- http://127.0.0.1:8001/health || exit 1
 ENTRYPOINT ["/usr/local/bin/userapi"]

@@ -12,10 +12,10 @@ import (
 
 // MessageHandler processes a single Kafka message.
 //
-// Returning an error causes the consumer to log it. The offset is
-// committed regardless, because our handlers are idempotent (deleting
-// a cache key twice is harmless). Stuck messages are worse than the
-// occasional redundant invalidation.
+// Returning an error makes the consumer retry (see RetryHandler), then
+// log it and commit past the message: a stuck partition is worse than one
+// skipped event. Handlers must be idempotent, since retries and
+// redeliveries happen.
 type MessageHandler func(ctx context.Context, key string, value []byte) error
 
 // Consumer wraps a kafka-go Reader with a consumer group and a handler.
@@ -24,18 +24,26 @@ type Consumer struct {
 	handler MessageHandler
 	logger  *logger.Logger
 
-	cancel context.CancelFunc
-	done   chan struct{}
+	cancel   context.CancelFunc
+	done     chan struct{}
+	attempts int
 }
 
-// Option tweaks the reader configuration.
-type Option func(*kafka.ReaderConfig)
+// Option tweaks the consumer.
+type Option func(*Consumer, *kafka.ReaderConfig)
 
 // StartAtLatest makes a brand-new consumer group start from the newest
 // message instead of the oldest. Use it for live fan-out (SSE), where
 // replaying history to screens would be wrong.
 func StartAtLatest() Option {
-	return func(c *kafka.ReaderConfig) { c.StartOffset = kafka.LastOffset }
+	return func(_ *Consumer, c *kafka.ReaderConfig) { c.StartOffset = kafka.LastOffset }
+}
+
+// RetryHandler retries a failing handler up to attempts times with
+// backoff before committing past the message. Use it when a message
+// carries money-like state (points) and a transient error must not drop it.
+func RetryHandler(attempts int) Option {
+	return func(c *Consumer, _ *kafka.ReaderConfig) { c.attempts = attempts }
 }
 
 func NewConsumer(
@@ -58,17 +66,17 @@ func NewConsumer(
 		ReadBackoffMin: 100 * time.Millisecond,
 		ReadBackoffMax: 1 * time.Second,
 	}
+	c := &Consumer{
+		handler:  handler,
+		logger:   log,
+		done:     make(chan struct{}),
+		attempts: 1,
+	}
 	for _, opt := range opts {
-		opt(&cfg)
+		opt(c, &cfg)
 	}
-	r := kafka.NewReader(cfg)
-
-	return &Consumer{
-		reader:  r,
-		handler: handler,
-		logger:  log,
-		done:    make(chan struct{}),
-	}
+	c.reader = kafka.NewReader(cfg)
+	return c
 }
 
 // Start begins consuming in a background goroutine and returns immediately.
@@ -104,7 +112,7 @@ func (c *Consumer) Start(ctx context.Context) {
 				"key", string(msg.Key),
 			)
 
-			if err := c.handler(ctx, string(msg.Key), msg.Value); err != nil {
+			if err := c.handle(ctx, msg); err != nil {
 				c.logger.Error("kafka handler failed",
 					"topic", msg.Topic,
 					"partition", msg.Partition,
@@ -138,4 +146,26 @@ func (c *Consumer) Stop() error {
 		}
 	}
 	return nil
+}
+
+// handle runs the handler, retrying with exponential backoff.
+func (c *Consumer) handle(ctx context.Context, msg kafka.Message) error {
+	var err error
+	backoff := 500 * time.Millisecond
+	for attempt := 1; attempt <= c.attempts; attempt++ {
+		if err = c.handler(ctx, string(msg.Key), msg.Value); err == nil {
+			return nil
+		}
+		if attempt == c.attempts || ctx.Err() != nil {
+			break
+		}
+		c.logger.Warn("kafka handler failed, retrying", "attempt", attempt, "error", err)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return err
+		}
+		backoff *= 2
+	}
+	return err
 }
