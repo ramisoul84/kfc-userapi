@@ -57,6 +57,15 @@ func NewServer(
 		WriteTimeout:          cfg.HTTP.WriteTimeout,
 		IdleTimeout:           cfg.HTTP.IdleTimeout,
 		DisableStartupMessage: true,
+		// Bodies here are small JSON; cap them well below Fiber's 4 MB.
+		BodyLimit: 256 << 10,
+		// Behind the web apps' nginx every request would otherwise come
+		// from the nginx container, putting all customers in one rate-limit
+		// bucket. nginx overwrites X-Real-IP with the connecting address;
+		// it is honoured only from private-network proxies.
+		ProxyHeader:             "X-Real-IP",
+		EnableTrustedProxyCheck: true,
+		TrustedProxies:          []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1"},
 	})
 
 	s := &Server{
