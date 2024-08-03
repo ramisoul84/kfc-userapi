@@ -1,6 +1,8 @@
 module github.com/ramisoul84/kfc-userapi
 
-go 1.25.0
+go 1.26.0
+
+toolchain go1.26.9
 
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
@@ -10,8 +12,8 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/segmentio/kafka-go v0.4.51
-	golang.org/x/crypto v0.55.0
-	google.golang.org/grpc v1.83.2
+	golang.org/x/crypto v0.58.0
+	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
@@ -32,8 +34,8 @@ require (
 	github.com/valyala/tcplisten v1.0.0 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
+	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 )
