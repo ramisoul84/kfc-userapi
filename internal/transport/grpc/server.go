@@ -28,7 +28,7 @@ func NewTransport(
 	authSvc service.DeviceAuthService,
 	tokens *jwt.DeviceTokenManager,
 ) *Transport {
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(serverOptions(log)...)
 
 	pairingServer := NewDevicePairingServer(pairingSvc, authSvc, tokens, log)
 	devicepairingv1.RegisterDevicePairingServiceServer(srv, pairingServer)

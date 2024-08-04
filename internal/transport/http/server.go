@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/recover"
@@ -17,10 +18,12 @@ import (
 	"github.com/ramisoul84/kfc-userapi/internal/transport/http/response"
 	"github.com/ramisoul84/kfc-userapi/pkg/jwt"
 	"github.com/ramisoul84/kfc-userapi/pkg/logger"
+	"github.com/ramisoul84/kfc-userapi/pkg/metrics"
 )
 
 // Server wraps the Fiber app with lifecycle methods.
 type Server struct {
+	ready             func(context.Context) error
 	app               *fiber.App
 	cfg               *config.Config
 	logger            *logger.Logger
@@ -115,6 +118,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // ═══════════════════════════════════════════════════════════════════
 
 func (s *Server) registerMiddleware() {
+	s.app.Use(metrics.Fiber())
 	s.app.Use(recover.New())
 	s.app.Use(cors.New(cors.Config{
 		AllowOrigins:     s.cfg.HTTP.CORSAllowOrigins,
@@ -130,7 +134,10 @@ func (s *Server) registerMiddleware() {
 
 func (s *Server) registerRoutes() {
 	// Health check (public)
-	s.app.Get("/health", s.healthCheck)
+	s.app.Get("/health", s.healthCheck)   // liveness: the process is up
+	s.app.Get("/ready", s.readinessCheck) // readiness: dependencies reachable
+	// Prometheus scrape target. Private: the web apps' nginx only proxies /api/*.
+	s.app.Get("/metrics", adaptor.HTTPHandler(metrics.Handler()))
 
 	api := s.app.Group("/api/v1")
 
@@ -210,6 +217,25 @@ func (s *Server) registerRoutes() {
 // ═══════════════════════════════════════════════════════════════════
 // HANDLERS
 // ═══════════════════════════════════════════════════════════════════
+
+// SetReadiness installs the dependency check behind GET /ready.
+func (s *Server) SetReadiness(check func(context.Context) error) {
+	s.ready = check
+}
+
+func (s *Server) readinessCheck(c *fiber.Ctx) error {
+	if s.ready != nil {
+		ctx, cancel := context.WithTimeout(c.UserContext(), 2*time.Second)
+		defer cancel()
+		if err := s.ready(ctx); err != nil {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+				"status": "unavailable",
+				"error":  err.Error(),
+			})
+		}
+	}
+	return c.JSON(fiber.Map{"status": "ready"})
+}
 
 func (s *Server) healthCheck(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{

@@ -36,6 +36,12 @@ func NewOrderStreamHandler(hub *sse.Hub, orders service.OrderService, log *logge
 	return &OrderStreamHandler{hub: hub, orders: orders, logger: log}
 }
 
+// Connections returns the number of open order streams (screens and
+// tracking pages), for metrics.
+func (h *OrderStreamHandler) Connections() int64 {
+	return h.connections.Load()
+}
+
 // orderMessage is the SSE "order" event payload.
 type orderMessage struct {
 	Type  string `json:"type"`

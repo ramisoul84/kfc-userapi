@@ -2,9 +2,12 @@ package app
 
 import (
 	"context"
+
 	"errors"
 	"fmt"
 	"os"
+
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/ramisoul84/kfc-userapi/internal/client"
 	"github.com/ramisoul84/kfc-userapi/internal/config"
@@ -19,6 +22,7 @@ import (
 	"github.com/ramisoul84/kfc-userapi/pkg/jwt"
 	"github.com/ramisoul84/kfc-userapi/pkg/kafka"
 	"github.com/ramisoul84/kfc-userapi/pkg/logger"
+	"github.com/ramisoul84/kfc-userapi/pkg/metrics"
 )
 
 // App wires together all application components.
@@ -180,6 +184,24 @@ func New(cfg *config.Config) (*App, error) {
 		customerTokens,
 		deviceTokens,
 		revocationRepo,
+	)
+
+	httpServer.SetReadiness(func(ctx context.Context) error {
+		if err := redisClient.Client.Ping(ctx).Err(); err != nil {
+			return fmt.Errorf("redis: %w", err)
+		}
+		return nil
+	})
+
+	// Live screens: how many kiosks, KDS/hall displays and tracking pages
+	// are connected right now. A drop to zero at opening time is an alert.
+	metrics.Registry.MustRegister(
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "sse_connections", Help: "Open SSE streams.", ConstLabels: prometheus.Labels{"stream": "menu"},
+		}, func() float64 { return float64(menuStreamHandler.Connections()) }),
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "sse_connections", Help: "Open SSE streams.", ConstLabels: prometheus.Labels{"stream": "orders"},
+		}, func() float64 { return float64(orderStreamHandler.Connections()) }),
 	)
 
 	// gRPC transport
