@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package devicepairing.v1;
+
+option go_package = "github.com/ramisoul84/kfc-userapi/gen/devicepairing/v1;devicepairingv1";
+
+service DevicePairingService {
+  rpc CachePairingCodes(CachePairingCodesRequest) returns (CachePairingCodesResponse);
+  rpc CachePairingCode(CachePairingCodeRequest) returns (CachePairingCodeResponse);
+  rpc RevokePairingCode(RevokePairingCodeRequest) returns (RevokePairingCodeResponse);
+}
+
+message CachePairingCodesRequest {
+  string restaurant_id = 1;
+  int64  expires_at    = 2;
+  repeated PairingCode codes = 3;
+}
+
+message PairingCode {
+  string serial_number = 1;
+  string device_id     = 2;
+  string code          = 3;
+}
+
+message CachePairingCodesResponse {
+  bool   success = 1;
+  int32  cached  = 2;
+  string message = 3;
+}
+
+message CachePairingCodeRequest {
+  string restaurant_id = 1;
+  string serial_number = 2;
+  string device_id     = 3;
+  string code          = 4;
+  int64  expires_at    = 5;
+}
+
+message CachePairingCodeResponse {
+  bool   success = 1;
+  string message = 2;
+}
+
+message RevokePairingCodeRequest {
+  string serial_number = 1;
+}
+
+message RevokePairingCodeResponse {
+  bool   success = 1;
+  string message = 2;
+}

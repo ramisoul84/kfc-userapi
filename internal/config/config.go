@@ -11,6 +11,7 @@ type Config struct {
 	App    AppConfig
 	Logger LoggerConfig
 	HTTP   HTTPConfig
+	GRPC   GRPCConfig
 	Redis  RedisConfig
 }
 
@@ -37,6 +38,11 @@ type HTTPConfig struct {
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
+	ShutdownTimeout time.Duration
+}
+
+type GRPCConfig struct {
+	Port            string
 	ShutdownTimeout time.Duration
 }
 
@@ -81,6 +87,11 @@ func Load() (*Config, error) {
 			WriteTimeout:    getEnvDuration("HTTP_WRITE_TIMEOUT", 15*time.Second),
 			IdleTimeout:     getEnvDuration("HTTP_IDLE_TIMEOUT", 60*time.Second),
 			ShutdownTimeout: getEnvDuration("HTTP_SHUTDOWN_TIMEOUT", 10*time.Second),
+		},
+
+		GRPC: GRPCConfig{
+			Port:            getEnv("GRPC_PORT", "9102"),
+			ShutdownTimeout: getEnvDuration("GRPC_SHUTDOWN_TIMEOUT", 10*time.Second),
 		},
 
 		Redis: RedisConfig{
